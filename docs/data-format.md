@@ -1,0 +1,104 @@
+# Data Format
+
+## 文件位置
+
+```
+~/.claude/projects/<encoded-cwd>/<session-uuid>.jsonl
+~/.claude/projects/<encoded-cwd>/<parent-session-uuid>/subagents/agent-XXX.jsonl
+```
+
+- `<encoded-cwd>` 是 Claude Code 内部把 `/` 替换为 `-` 的项目目录名。**不依赖该编码反解 cwd**，而是从 JSONL 内容的 `cwd` 字段读取；无字段时再退化为字符串替换（见 `src/server/routes.ts#decodeProjectId`）。
+- **Sub-agent 文件**：扫描时遇到子目录会进入 `<dir>/subagents/`，把其中的 `*.jsonl` 作为独立 session 收录，并在 `SessionFile.parentSessionId` 上记录父 session UUID。
+
+## Entry 类型（宽容设计）
+
+类型定义在 `src/lib/types.ts`。原则：**未知字段一律保留，必填项几乎全为可选**，避免格式微变就解析失败。
+
+```ts
+export type EntryType =
+  | 'user' | 'assistant'
+  | 'system' | 'summary'
+  | 'permission-mode' | 'file-history-snapshot'
+  | 'attachment' | 'last-prompt'
+  | (string & {});                  // 未知类型保留为 string
+
+export type ContentBlock =
+  | { type: 'text'; text: string }
+  | { type: 'tool_use'; id: string; name: string; input: Record<string, unknown> }
+  | { type: 'tool_result'; tool_use_id: string; content: unknown; is_error?: boolean }
+  | { type: 'thinking'; thinking: string; signature?: string }
+  | { type: string; [key: string]: unknown };   // 兜底
+
+export type RawEntry = {
+  uuid?: string;
+  parentUuid?: string | null;
+  sessionId?: string;
+  timestamp?: string;
+  type: EntryType;
+  cwd?: string;
+  version?: string;
+  gitBranch?: string;
+  isSidechain?: boolean;
+  message?: {
+    id?: string;
+    role?: 'user' | 'assistant';
+    model?: string;
+    content?: ContentBlock[] | string;
+    usage?: TokenUsage;
+    stop_reason?: string;
+    [k: string]: unknown;
+  };
+  toolUseResult?: unknown;          // 部分版本把工具结果放在外层
+  summary?: string;
+  leafUuid?: string;
+  [k: string]: unknown;
+};
+```
+
+`TokenUsage` 四个标准字段全部 optional：
+
+- `input_tokens`
+- `output_tokens`
+- `cache_creation_input_tokens`
+- `cache_read_input_tokens`
+
+## 解析规则（`src/server/parser.ts`）
+
+- **跳过空行与解析失败行**，分别计入 `skippedLines` / `parseErrors`，不抛错。
+- **保留集**：
+  - 会话类型 `user | assistant`
+  - 元数据类型 `system | summary | ai-title | agent-name | permission-mode | file-history-snapshot | attachment | last-prompt | queue-operation`
+  - 其余类型整条丢弃。
+- **排序**：按 `timestamp` 升序。
+- **Title 解析顺序**：
+  1. 首个 `type === 'ai-title'` 的 `aiTitle` 字段
+  2. 首个 `type === 'summary'` 的 `summary` 字段
+  3. 首条 user 消息内首个 text block，截断到 80 字 + `…`
+  4. 兜底 `'Untitled session'`
+- **统计**：
+  - 仅 assistant 的 `usage` 计入 token 与成本
+  - `toolCallCount` 计 assistant content 中 `tool_use` 块数量
+  - 任意带 `isSidechain` 的 entry 触发 `hasSubagents = true`
+- **主模型**：assistant 消息 `model` 字段出现次数最多者。
+- **Tree**：从所有带 `uuid` 的 entry 构建 `parentUuid → children` 树；根为第一个父不在集合内的节点；空 session 返回 `null`。
+- **Tool call 配对**：`pairToolCalls(entries)` 把 assistant 中的 `tool_use` 与后续 user 中的 `tool_result` 按 `id`/`tool_use_id` 配对，附带 `is_error` 与外层 `toolUseResult`。前端在 `src/lib/toolCalls.ts` 有同名实现（视图需要时复用）。
+
+## 共享类型契约
+
+服务端 / 客户端复用（`src/lib/types.ts`）：
+
+```ts
+ProjectSummary { id, cwd, sessionCount, totalTokens, totalCostUsd, lastActiveAt }
+SessionSummary { id, projectId, cwd, title, startedAt, endedAt,
+                 messageCount, toolCallCount, totalTokens, totalCostUsd,
+                 model, hasSubagents }
+SessionDetail = SessionSummary & { entries: ParsedEntry[], tree: TreeNode | null }
+ParsedEntry   = RawEntry & { recognized: boolean }
+TreeNode      { uuid, parentUuid, children, isSidechain }
+```
+
+注意：
+
+- `totalTokens` 在 `SessionSummary` 上是 `TokenUsage` 对象，不是单一数字；在 `ProjectSummary` 上才是聚合数字。
+- `tree` 在空 session 下为 `null`。
+- `EntryType` 用 `(string & {})` 保留未识别枚举值，避免在 union 上写死后阻塞编译。

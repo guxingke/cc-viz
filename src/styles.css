@@ -1,0 +1,10 @@
+@import "tailwindcss";
+
+/* Tailwind v4 dark mode: class-based strategy */
+@custom-variant dark (&:where(.dark, .dark *));
+
+html,
+body,
+#root {
+  height: 100%;
+}
