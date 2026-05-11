@@ -26,6 +26,22 @@ export function formatDateTime(iso: string): string {
   });
 }
 
+export function formatSinceStart(iso: string, startIso: string): string {
+  if (!iso || !startIso) return '—';
+  const d = new Date(iso).getTime();
+  const s = new Date(startIso).getTime();
+  if (isNaN(d) || isNaN(s)) return iso;
+  const diff = Math.max(0, d - s);
+  const totalSec = Math.floor(diff / 1000);
+  if (totalSec < 60) return `+${totalSec}s`;
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  if (min < 60) return `+${min}m${sec.toString().padStart(2, '0')}s`;
+  const hr = Math.floor(min / 60);
+  const remMin = min % 60;
+  return `+${hr}h${remMin.toString().padStart(2, '0')}m`;
+}
+
 export function formatRelative(iso: string): string {
   if (!iso) return '—';
   const d = new Date(iso);

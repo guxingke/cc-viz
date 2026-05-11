@@ -18,6 +18,7 @@ bun run typecheck  # tsc --noEmit
 | `PORT` | `3456` | 监听端口 |
 | `CC_VIZ_TOKEN` | 启动时随机生成 | 鉴权 token；不设置则每次启动变动 |
 | `CC_VIZ_NO_AUTH` | unset | 设为 `1` 完全关闭鉴权 |
+| `CC_VIZ_DB` | `$HOME/.config/cc-viz/db.sqlite` | SQLite 状态库路径；分享链接持久化于此 |
 | `NO_OPEN` | unset | 设为任意非空值则不自动打开浏览器 |
 | `NO_CSS_WATCH` | unset | 设为任意非空值则跳过 Tailwind `--watch` 子进程 |
 
@@ -41,6 +42,12 @@ export CC_VIZ_TOKEN=<your-token>
 - `~/.claude/projects/` 不存在：`listProjects()` 返回空数组；UI 表现为 `EmptyState`。
 - API 抛错：`handleApi` 兜底 500 + `console.error`。
 - 401：API 统一返回；`api.ts` 调全局 unauthorized handler，把 UI 切到登录态。
+
+## 状态存储
+
+唯一的可写状态库是 `$HOME/.config/cc-viz/db.sqlite`（首次启动自动 `mkdir -p`，WAL 模式）。当前只放 `shares` 表（分享链接），未来如有其他元数据按表分增即可。
+
+`~/.claude/` 全程只读，未被该数据库引用，也不会被写入。
 
 ## 缓存语义
 

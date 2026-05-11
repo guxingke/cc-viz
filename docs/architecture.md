@@ -11,9 +11,11 @@
 ## 非目标（明确排除）
 
 - 不监听进行中的 session（仅静态回放，按文件 mtime 失效后重读）
-- 不支持多用户 / 鉴权服务化 / 远程部署
-- 不写入或修改任何 Claude Code 的原始数据
+- 不内置多用户体系，但**提供单 session 只读分享链接**（独立 token、可选 TTL、可撤销）
+- 不写入或修改任何 Claude Code 的原始数据（`~/.claude/` 全程只读）
 - 不引入额外 UI 框架（如 shadcn）和重型构建工具（Vite / Webpack / Next 等）
+
+> 分享功能引入了一处可写状态库：`$HOME/.config/cc-viz/db.sqlite`（可用 `CC_VIZ_DB` 覆盖）。除此之外没有其他持久化。
 
 ## 技术栈
 
@@ -51,11 +53,13 @@ cc-viz/
 │   ├── server/
 │   │   ├── auth.ts                 # token 生成、Cookie/Bearer 解析、定值比较
 │   │   ├── cache.ts                # 按 absPath + mtime 内存缓存
+│   │   ├── db.ts                   # bun:sqlite 打开 + 迁移（CC_VIZ_DB / 默认 $HOME/.config/cc-viz/db.sqlite）
 │   │   ├── parser.ts               # JSONL → SessionDetail + ToolCallPair 配对
 │   │   ├── pricing.ts              # 转发至 lib/pricing
 │   │   ├── routes.ts               # /api/* 路由分发
 │   │   ├── scanner.ts              # 扫描 ~/.claude/projects/ 及 sub-agent 子目录
-│   │   └── search.ts               # 跨 session 文本搜索
+│   │   ├── search.ts               # 跨 session 文本搜索
+│   │   └── shares.ts               # 单 session 只读分享链接：CRUD + token 校验 + TTL
 │   ├── lib/
 │   │   ├── api.ts                  # 前端 fetch 封装 + 401 回调
 │   │   ├── format.ts               # token / cost / duration / cwd 格式化

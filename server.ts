@@ -43,6 +43,7 @@ const server = Bun.serve({
   routes: {
     '/': index,
     '/sessions/:id': index,
+    '/share/:token': index,
     '/api/*': (req) => handleApi(req),
   },
   error(err) {

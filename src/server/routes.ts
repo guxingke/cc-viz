@@ -1,5 +1,13 @@
 import { readFile } from 'node:fs/promises';
-import type { ProjectSummary, SessionDetail, SessionSummary } from '../lib/types';
+import type {
+  ContentBlock,
+  ParsedEntry,
+  ProjectSummary,
+  SessionDetail,
+  SessionSummary,
+  ShareCreateInput,
+  ShareTTL,
+} from '../lib/types';
 import {
   isAuthorized,
   makeAuthCookie,
@@ -7,8 +15,14 @@ import {
   verifyToken,
 } from './auth';
 import { getParsedSession } from './cache';
-import { findSessionById, listProjects } from './scanner';
+import { findSessionById, listProjects, listSubagentMetas } from './scanner';
 import { searchSessions, type SearchHit } from './search';
+import {
+  createShare,
+  listSharesBySession,
+  resolveActiveShare,
+  revokeShare,
+} from './shares';
 
 function json(body: unknown, status = 200): Response {
   return new Response(JSON.stringify(body), {
@@ -84,7 +98,47 @@ async function getSessionDetail(id: string): Promise<SessionDetail | null> {
   const file = await findSessionById(id);
   if (!file) return null;
   const parsed = await getParsedSession(file.absPath, file.id, file.projectId);
-  return parsed.detail;
+  const links = await buildSubagentLinks(id, parsed.detail.entries);
+  if (Object.keys(links).length === 0) return parsed.detail;
+  return { ...parsed.detail, subagentLinks: links };
+}
+
+const AGENT_TOOL_NAMES = new Set(['Task', 'Agent']);
+
+async function buildSubagentLinks(
+  parentId: string,
+  entries: ParsedEntry[],
+): Promise<Record<string, string>> {
+  const metas = await listSubagentMetas(parentId);
+  if (metas.length === 0) return {};
+  const used = new Set<number>();
+  const links: Record<string, string> = {};
+  for (const e of entries) {
+    if (e.type !== 'assistant' || !Array.isArray(e.message?.content)) continue;
+    for (const block of e.message!.content as ContentBlock[]) {
+      if (block.type !== 'tool_use') continue;
+      const b = block as { id?: unknown; name?: unknown; input?: unknown };
+      const name = typeof b.name === 'string' ? b.name : '';
+      if (!AGENT_TOOL_NAMES.has(name)) continue;
+      const tid = typeof b.id === 'string' ? b.id : '';
+      if (!tid) continue;
+      const input = (b.input && typeof b.input === 'object' ? b.input : {}) as Record<
+        string,
+        unknown
+      >;
+      const subagentType = typeof input.subagent_type === 'string' ? input.subagent_type : '';
+      const description = typeof input.description === 'string' ? input.description : '';
+      for (let i = 0; i < metas.length; i++) {
+        if (used.has(i)) continue;
+        if (metas[i].agentType === subagentType && metas[i].description === description) {
+          links[tid] = metas[i].sessionId;
+          used.add(i);
+          break;
+        }
+      }
+    }
+  }
+  return links;
 }
 
 async function getSessionRaw(id: string): Promise<Response> {
@@ -95,6 +149,54 @@ async function getSessionRaw(id: string): Promise<Response> {
     status: 200,
     headers: { 'Content-Type': 'application/x-ndjson; charset=utf-8' },
   });
+}
+
+function isValidTtl(v: unknown): v is ShareTTL {
+  return v === null || v === undefined || v === '1d' || v === '7d';
+}
+
+async function handleShareCreate(req: Request): Promise<Response> {
+  let body: Partial<ShareCreateInput> & Record<string, unknown>;
+  try {
+    body = (await req.json()) as Partial<ShareCreateInput>;
+  } catch {
+    return json({ error: 'invalid_json' }, 400);
+  }
+  const sessionId = typeof body.sessionId === 'string' ? body.sessionId.trim() : '';
+  if (!sessionId) return json({ error: 'sessionId_required' }, 400);
+
+  const file = await findSessionById(sessionId);
+  if (!file) return json({ error: 'session_not_found', id: sessionId }, 404);
+
+  const ttl = body.ttl;
+  if (!isValidTtl(ttl)) return json({ error: 'invalid_ttl' }, 400);
+
+  const label =
+    typeof body.label === 'string' && body.label.trim() ? body.label.trim() : null;
+
+  const share = createShare({ sessionId, label, ttl: ttl ?? null });
+  return json(share, 201);
+}
+
+async function handleShareList(url: URL): Promise<Response> {
+  const sessionId = url.searchParams.get('sessionId')?.trim() || '';
+  if (!sessionId) return json({ error: 'sessionId_required' }, 400);
+  return json(listSharesBySession(sessionId));
+}
+
+async function handleShareRevoke(token: string): Promise<Response> {
+  if (!token) return json({ error: 'token_required' }, 400);
+  const ok = revokeShare(token);
+  return json({ ok }, ok ? 200 : 404);
+}
+
+async function handleSharedSession(token: string): Promise<Response> {
+  const share = resolveActiveShare(token);
+  if (!share) return unauthorizedJson();
+  const file = await findSessionById(share.sessionId);
+  if (!file) return json({ error: 'session_not_found', id: share.sessionId }, 404);
+  const parsed = await getParsedSession(file.absPath, file.id, file.projectId);
+  return json(parsed.detail);
 }
 
 async function handleLogin(req: Request): Promise<Response> {
@@ -128,7 +230,24 @@ export async function handleApi(req: Request): Promise<Response> {
       return isAuthorized(req) ? json({ ok: true }) : unauthorizedJson();
     }
 
+    // Share-token scoped endpoints — verify against the share itself, not the
+    // owner token. Strictly scoped to the bound sessionId.
+    let sharedMatch = p.match(/^\/api\/share\/([^/]+)\/session$/);
+    if (sharedMatch) return await handleSharedSession(sharedMatch[1]);
+
     if (!isAuthorized(req)) return unauthorizedJson();
+
+    // Owner-token share management endpoints.
+    if (p === '/api/_share') {
+      if (req.method === 'GET') return await handleShareList(url);
+      if (req.method === 'POST') return await handleShareCreate(req);
+      return json({ error: 'method_not_allowed' }, 405);
+    }
+    const revokeMatch = p.match(/^\/api\/_share\/([^/]+)$/);
+    if (revokeMatch) {
+      if (req.method !== 'DELETE') return json({ error: 'method_not_allowed' }, 405);
+      return await handleShareRevoke(revokeMatch[1]);
+    }
 
     if (p === '/api/projects') return json(await getProjectSummaries());
     if (p === '/api/sessions') return json(await getAllSessionSummaries());

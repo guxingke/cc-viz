@@ -1,7 +1,7 @@
 import './styles.built.css';
 import { useEffect, useState } from 'react';
 import { createRoot } from 'react-dom/client';
-import { BrowserRouter, Link, Routes, Route } from 'react-router-dom';
+import { BrowserRouter, Link, Routes, Route, useParams } from 'react-router-dom';
 import { SessionList } from './views/SessionList';
 import { SessionDetail } from './views/SessionDetail';
 import { ThemeToggle } from './components/ThemeToggle';
@@ -9,15 +9,25 @@ import { TokenPrompt } from './components/TokenPrompt';
 import { useDarkMode } from './hooks/useDarkMode';
 import { api, setUnauthorizedHandler } from './lib/api';
 
-function Shell({ children }: { children: React.ReactNode }) {
+function Shell({
+  children,
+  shareMode = false,
+}: {
+  children: React.ReactNode;
+  shareMode?: boolean;
+}) {
   return (
     <div className="h-full flex flex-col bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100">
       <header className="border-b border-gray-200 dark:border-gray-800 px-6 py-2.5 flex items-center gap-4 shrink-0">
-        <Link to="/" className="text-base font-semibold tracking-tight">
-          Claude Viz
-        </Link>
+        {shareMode ? (
+          <span className="text-base font-semibold tracking-tight">Claude Viz</span>
+        ) : (
+          <Link to="/" className="text-base font-semibold tracking-tight">
+            Claude Viz
+          </Link>
+        )}
         <span className="text-[11px] text-gray-500 dark:text-gray-400">
-          Local-only session visualizer
+          {shareMode ? 'Shared session (read-only)' : 'Local-only session visualizer'}
         </span>
         <div className="ml-auto flex items-center gap-2">
           <ThemeToggle />
@@ -25,6 +35,15 @@ function Shell({ children }: { children: React.ReactNode }) {
       </header>
       <main className="flex-1 min-h-0 overflow-hidden">{children}</main>
     </div>
+  );
+}
+
+function SharedSessionRoute() {
+  const { token = '' } = useParams();
+  return (
+    <Shell shareMode>
+      <SessionDetail shareToken={token} />
+    </Shell>
   );
 }
 
@@ -75,25 +94,33 @@ function App() {
   useDarkMode();
   return (
     <BrowserRouter>
-      <AuthGate>
-        <Shell>
-          <Routes>
-            <Route path="/" element={<SessionList />} />
-            <Route path="/sessions/:id" element={<SessionDetail />} />
-            <Route
-              path="*"
-              element={
-                <div className="p-8 text-sm text-gray-500">
-                  Not found.{' '}
-                  <Link to="/" className="text-blue-600 underline">
-                    Go home
-                  </Link>
-                </div>
-              }
-            />
-          </Routes>
-        </Shell>
-      </AuthGate>
+      <Routes>
+        <Route path="/share/:token" element={<SharedSessionRoute />} />
+        <Route
+          path="*"
+          element={
+            <AuthGate>
+              <Shell>
+                <Routes>
+                  <Route path="/" element={<SessionList />} />
+                  <Route path="/sessions/:id" element={<SessionDetail />} />
+                  <Route
+                    path="*"
+                    element={
+                      <div className="p-8 text-sm text-gray-500">
+                        Not found.{' '}
+                        <Link to="/" className="text-blue-600 underline">
+                          Go home
+                        </Link>
+                      </div>
+                    }
+                  />
+                </Routes>
+              </Shell>
+            </AuthGate>
+          }
+        />
+      </Routes>
     </BrowserRouter>
   );
 }

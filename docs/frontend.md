@@ -2,14 +2,16 @@
 
 ## 入口与 Shell（`src/app.tsx`）
 
-层级：`BrowserRouter` → `AuthGate` → `Shell` → `Routes`。
+层级：`BrowserRouter` → 外层 `Routes`（分流分享态）→ 普通路径下再走 `AuthGate` → `Shell` → 内层 `Routes`。
 
-- **Shell**：固定头部（"Claude Viz" 标题 + `ThemeToggle`）+ 滚动主体。
+- **Shell**：固定头部（"Claude Viz" 标题 + `ThemeToggle`）+ 滚动主体。分享态下 `shareMode` prop 把 Logo 改成纯文本（不再链到 `/`），副标题改为 "Shared session (read-only)"。
 - **AuthGate**：
   - 状态：`checking | authed | unauthed`。
   - 首次挂载：若 URL 携带 `?token=…` 则先 `POST /api/_auth/login`（成功后从 URL 清除 token），否则直接 `GET /api/_auth/check`。
   - 通过 `setUnauthorizedHandler` 注册全局 401 回调；任何 API 401 都会把状态打回 `unauthed`，渲染 `TokenPrompt`。
-- 路由：`/` → `SessionList`；`/sessions/:id` → `SessionDetail`；其余 → 404 文案。
+- 路由：
+  - `/share/:token` → `SharedSessionRoute`（**不**经过 `AuthGate`，渲染 `<SessionDetail shareToken={token} />`）。
+  - 其余路径走 `AuthGate` + `Shell`，再做内部分发：`/` → `SessionList`；`/sessions/:id` → `SessionDetail`；其它 → 404 文案。
 
 ## SessionList（`src/views/SessionList.tsx`）
 
@@ -25,16 +27,20 @@
 ## SessionDetail（`src/views/SessionDetail.tsx`）
 
 - 顶部信息条：标题、cwd、startedAt（绝对时间）、`messageCount · toolCallCount · tokens · cost` 一行 `font-mono`、model。
+- 顶部右侧 **Share** 按钮（仅非分享态）：打开 `ShareDialog` 进行分享链接的列出 / 新建（含 1d / 7d / 永久 TTL） / 复制 / 撤销。
 - Tabs：`timeline / tools / tokens / tree`，通过 URL `?tab=` 切换；默认 `timeline`。
 - 主体根据 tab 渲染对应视图组件，传入 `detail: SessionDetail`。
+- 接受可选 `shareToken` prop：传入则改走 `/api/share/:token/session` 获取数据，并隐藏 "← All sessions" 与 "Share" 按钮（分享态严格只读）。
 
 ## Timeline（`src/views/Timeline.tsx`）
 
 - 主体为虚拟滚动的消息流（`@tanstack/react-virtual`）。
-- 每条消息：相对时间、模型 badge（assistant 才有）、内容、usage 小字。
+- 每条消息：**相对 session 启动时间**（`+5m23s` / `+1h02m`，由 `formatSinceStart` 渲染）、模型 badge（assistant 才有）、内容、usage 小字。
 - `thinking` 块默认折叠、灰色斜体。
 - `tool_use` 块嵌入消息内，复用 `ToolCallCard` 折叠展示。
-- 顶部工具条：跳转顶部 / 底部 / 下一个工具调用 / 下一个 sub-agent 分支。
+- assistant 消息若含文本块，头部右侧有 `raw / preview` 切换按钮：默认 `preview`（`Markdown` 组件用 marked 渲染，样式见 `src/styles.css` 的 `.cc-md` 作用域），切到 `raw` 显示原始文本（`whitespace-pre-wrap`）。状态按消息独立保存（无全局开关、无持久化）。
+- 顶部工具条：跳转顶部 / 底部 / 下一个工具调用 / 下一个 sub-agent 分支 / **Concise 开关**。
+- **Concise 模式**（toolbar 右侧 `○/● Concise` 按钮，状态持久化到 `localStorage["cc-viz:timeline-concise"]`）：模拟 Claude Code CLI 的可见信息——`thinking` 块隐藏、`turn_duration` 系统行隐藏、assistant 下方的 token/cost usage 隐藏、tool 调用改为不可展开的紧凑单行（`<ToolCallCard compact />`）。同一条 assistant 消息内**连续 ≥2 个同名 tool_use** 进一步合并为可展开组（`<ToolGroupCard />`，header 形如 `Read × 5`，预览首两个参数 + `+N more`，展开后逐条紧凑显示）。完整数据仍可在 ToolCalls / TokenChart 等 tab 查看。
 
 ## ToolCalls（`src/views/ToolCalls.tsx`）
 
@@ -45,7 +51,7 @@
   - **Read** → 文件路径 + 行数
   - **Bash** → 命令 + 输出（>20 行折叠）
   - **Grep / Glob** → pattern + 命中数
-  - **Task** → 高亮，并链到对应 sub-agent
+  - **Task / Agent** → 高亮（粉色）；展开后若 `SessionDetail.subagentLinks` 含该 tool_use id，再多一个 `▸ Sub-agent timeline` 按钮，点击就地嵌入子代理 session 的消息列表（`SubagentEmbed` 组件，惰性 `api.session(subId)`，递归支持嵌套 sub-agent）
   - **WebFetch / WebSearch** → URL / query + 摘要
   - 其它 → JSON `<pre>` + 语法高亮
 - 顶部过滤器：按工具名筛选 / 仅显示错误 / 排序方式。

@@ -1,4 +1,4 @@
-import { readdir, stat } from 'node:fs/promises';
+import { readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { join } from 'node:path';
 
@@ -87,6 +87,45 @@ export async function listSessionsIn(absDir: string, projectId: string): Promise
     }
   }
   return files;
+}
+
+export type SubagentMeta = {
+  sessionId: string;
+  agentType: string;
+  description: string;
+  mtimeMs: number;
+};
+
+/**
+ * Reads the `.meta.json` sidecars next to every sub-agent JSONL whose
+ * `parentSessionId === parentId`. Returns chronologically (by file mtime).
+ * Files lacking a meta.json (older Claude Code versions) are skipped.
+ */
+export async function listSubagentMetas(parentId: string): Promise<SubagentMeta[]> {
+  const projects = await listProjects();
+  for (const p of projects) {
+    const subs = p.sessions.filter((s) => s.parentSessionId === parentId);
+    if (subs.length === 0) continue;
+    const out: SubagentMeta[] = [];
+    for (const s of subs) {
+      const metaPath = s.absPath.replace(/\.jsonl$/, '.meta.json');
+      try {
+        const text = await readFile(metaPath, 'utf8');
+        const obj = JSON.parse(text) as Record<string, unknown>;
+        out.push({
+          sessionId: s.id,
+          agentType: typeof obj.agentType === 'string' ? obj.agentType : '',
+          description: typeof obj.description === 'string' ? obj.description : '',
+          mtimeMs: s.mtimeMs,
+        });
+      } catch {
+        // meta.json missing or unreadable — skip (older format)
+      }
+    }
+    out.sort((a, b) => a.mtimeMs - b.mtimeMs);
+    return out;
+  }
+  return [];
 }
 
 export async function findSessionById(sessionId: string): Promise<SessionFile | null> {

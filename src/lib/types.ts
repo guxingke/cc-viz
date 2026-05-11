@@ -102,4 +102,28 @@ export type SessionSummary = {
 export type SessionDetail = SessionSummary & {
   entries: ParsedEntry[];
   tree: TreeNode | null;
+  /**
+   * Map of Task/Agent tool_use id → sub-agent session id, derived from the
+   * sibling `<parent>/<id>/subagents/agent-XXX.meta.json` files. Only populated
+   * by the owner-token API; share-link responses omit this since sub-agent
+   * sessions are not implicitly shared.
+   */
+  subagentLinks?: Record<string, string>;
+};
+
+/** Share-link TTL options accepted from clients. `null` = never expires. */
+export type ShareTTL = '1d' | '7d' | null;
+
+export type Share = {
+  token: string;
+  sessionId: string;
+  label: string | null;
+  createdAt: string;
+  expiresAt: string | null;
+};
+
+export type ShareCreateInput = {
+  sessionId: string;
+  label?: string | null;
+  ttl?: ShareTTL;
 };

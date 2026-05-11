@@ -8,14 +8,15 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
+    "@tanstack/react-virtual": "^3.10.0",
+    "@xyflow/react": "^12.3.0",
+    "dagre": "^0.8.5",
+    "marked": "^18.0.3",
     "react": "^18.3.0",
+    "react-diff-viewer-continued": "^4.0.0",
     "react-dom": "^18.3.0",
     "react-router-dom": "^6.26.0",
-    "recharts": "^2.12.0",
-    "@xyflow/react": "^12.3.0",
-    "react-diff-viewer-continued": "^4.0.0",
-    "@tanstack/react-virtual": "^3.10.0",
-    "dagre": "^0.8.5"
+    "recharts": "^2.12.0"
   },
   "devDependencies": {
     "@tailwindcss/cli": "^4.3.0",

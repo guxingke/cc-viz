@@ -40,6 +40,10 @@
 | GET  | `/api/sessions/:id` | 单 session 完整解析结果 |
 | GET  | `/api/sessions/:id/raw` | 原始 JSONL 文本 |
 | GET  | `/api/search?q=…` | 跨 session 文本搜索 |
+| GET  | `/api/_share?sessionId=…` | 列指定 session 的分享链接（主 token） |
+| POST | `/api/_share` | 创建分享链接（主 token），body `{ sessionId, label?, ttl? }` |
+| DELETE | `/api/_share/:token` | 撤销分享链接（主 token） |
+| GET  | `/api/share/:token/session` | 只读获取分享绑定的 session（分享 token，跳过主鉴权） |
 
 - 除登录两条之外的接口在分发前统一 `isAuthorized()` 校验；未通过返回 401。
 - 未匹配的 `/api/*` 返回 404。
@@ -50,6 +54,28 @@
 - `PROJECTS_ROOT = ~/.claude/projects`；`projectsRootExists()` 用于空状态判断。
 - `listProjects()` 列一层目录；每个项目目录里再列 `*.jsonl` 与 `<uuid>/subagents/*.jsonl`，并记录 `mtimeMs` / `size`。
 - `findSessionById(id)` 线性扫描所有项目找匹配 session 文件。
+- `listSubagentMetas(parentId)` 读取 `<parent>/subagents/agent-XXX.meta.json` 旁挂文件，返回 `[{ sessionId, agentType, description, mtimeMs }]`（按 mtime 升序）。`getSessionDetail` 用它配合父 session 中的 `Task`/`Agent` tool_use 的 `(subagent_type, description)` 字段建立 `subagentLinks: { toolUseId → subagentSessionId }`，附在 `SessionDetail` 上返回；share 端点**不**附带（子代理不在分享范围内）。
+
+## 分享（`src/server/shares.ts` + `src/server/db.ts`）
+
+- 状态库：`bun:sqlite`，默认路径 `$HOME/.config/cc-viz/db.sqlite`，可用 `CC_VIZ_DB` 覆盖。WAL 模式；`PRAGMA user_version` 做迁移。
+- 表结构：
+
+  ```sql
+  CREATE TABLE shares (
+    token       TEXT PRIMARY KEY,
+    session_id  TEXT NOT NULL,
+    label       TEXT,
+    created_at  TEXT NOT NULL,
+    expires_at  TEXT       -- NULL = 永久
+  );
+  CREATE INDEX idx_shares_session_id ON shares(session_id);
+  ```
+
+- token 用 `randomBytes(24).toString('base64url')`，查找时 `timingSafeEqual` 定值比较。
+- TTL：`'1d' | '7d' | null`，过期判定在每次请求时做（惰性失效，不需要 GC）。
+- 撤销 = 物理 `DELETE`。
+- 分享端点 `/api/share/:token/session` 不走 `isAuthorized`，自己用 `resolveActiveShare(token)` 校验：token 存在 + 未过期 + 绑定到的 sessionId 必须匹配实际加载的 session（路由内部由 share 决定 sessionId，不接受外部传入）。
 
 ## 缓存（`src/server/cache.ts`）
 

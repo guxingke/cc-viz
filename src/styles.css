@@ -8,3 +8,139 @@ body,
 #root {
   height: 100%;
 }
+
+/* Markdown preview (assistant text blocks). Scoped to .cc-md to avoid leaking. */
+.cc-md {
+  font-size: 0.875rem;
+  line-height: 1.55;
+  word-wrap: break-word;
+}
+.cc-md > :first-child {
+  margin-top: 0;
+}
+.cc-md > :last-child {
+  margin-bottom: 0;
+}
+.cc-md p {
+  margin: 0.5em 0;
+}
+.cc-md h1,
+.cc-md h2,
+.cc-md h3,
+.cc-md h4,
+.cc-md h5,
+.cc-md h6 {
+  font-weight: 600;
+  margin: 0.75em 0 0.25em;
+  line-height: 1.3;
+}
+.cc-md h1 {
+  font-size: 1.25em;
+}
+.cc-md h2 {
+  font-size: 1.15em;
+}
+.cc-md h3 {
+  font-size: 1.05em;
+}
+.cc-md ul,
+.cc-md ol {
+  padding-left: 1.5em;
+  margin: 0.4em 0;
+}
+.cc-md ul {
+  list-style: disc;
+}
+.cc-md ol {
+  list-style: decimal;
+}
+.cc-md li {
+  margin: 0.1em 0;
+}
+.cc-md li > p {
+  margin: 0.2em 0;
+}
+.cc-md code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.85em;
+  padding: 0.1em 0.35em;
+  border-radius: 0.25em;
+  background: rgb(243 244 246);
+}
+:where(.dark) .cc-md code {
+  background: rgb(31 41 55);
+}
+.cc-md pre {
+  font-family: ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  font-size: 0.8em;
+  padding: 0.65em 0.75em;
+  border-radius: 0.375em;
+  background: rgb(249 250 251);
+  border: 1px solid rgb(229 231 235);
+  overflow-x: auto;
+  margin: 0.5em 0;
+  line-height: 1.5;
+}
+:where(.dark) .cc-md pre {
+  background: rgb(17 24 39);
+  border-color: rgb(31 41 55);
+}
+.cc-md pre code {
+  background: transparent;
+  padding: 0;
+  font-size: inherit;
+  border-radius: 0;
+}
+.cc-md blockquote {
+  border-left: 3px solid rgb(209 213 219);
+  padding-left: 0.75em;
+  color: rgb(107 114 128);
+  margin: 0.5em 0;
+}
+:where(.dark) .cc-md blockquote {
+  border-left-color: rgb(55 65 81);
+  color: rgb(156 163 175);
+}
+.cc-md a {
+  color: rgb(37 99 235);
+  text-decoration: underline;
+}
+:where(.dark) .cc-md a {
+  color: rgb(96 165 250);
+}
+.cc-md strong {
+  font-weight: 600;
+}
+.cc-md em {
+  font-style: italic;
+}
+.cc-md hr {
+  border: 0;
+  border-top: 1px solid rgb(229 231 235);
+  margin: 1em 0;
+}
+:where(.dark) .cc-md hr {
+  border-top-color: rgb(55 65 81);
+}
+.cc-md table {
+  border-collapse: collapse;
+  margin: 0.5em 0;
+  font-size: 0.9em;
+}
+.cc-md th,
+.cc-md td {
+  border: 1px solid rgb(229 231 235);
+  padding: 0.25em 0.5em;
+  text-align: left;
+}
+:where(.dark) .cc-md th,
+:where(.dark) .cc-md td {
+  border-color: rgb(55 65 81);
+}
+.cc-md th {
+  background: rgb(243 244 246);
+  font-weight: 600;
+}
+:where(.dark) .cc-md th {
+  background: rgb(31 41 55);
+}

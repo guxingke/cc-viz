@@ -8,7 +8,7 @@
 ```
 
 - `<encoded-cwd>` 是 Claude Code 内部把 `/` 替换为 `-` 的项目目录名。**不依赖该编码反解 cwd**，而是从 JSONL 内容的 `cwd` 字段读取；无字段时再退化为字符串替换（见 `src/server/routes.ts#decodeProjectId`）。
-- **Sub-agent 文件**：扫描时遇到子目录会进入 `<dir>/subagents/`，把其中的 `*.jsonl` 作为独立 session 收录，并在 `SessionFile.parentSessionId` 上记录父 session UUID。
+- **Sub-agent 文件**：扫描时遇到子目录会进入 `<dir>/subagents/`，把其中的 `*.jsonl` 作为独立 session 收录，并在 `SessionFile.parentSessionId` 上记录父 session UUID。每个 `agent-XXX.jsonl` 旁边可能有 `agent-XXX.meta.json`（含 `{ agentType, description }`），用于把父 session 中 `Task`/`Agent` tool_use（含 `subagent_type` + `description`）关联到具体子代理文件——见后端 `listSubagentMetas` / `SessionDetail.subagentLinks`。
 
 ## Entry 类型（宽容设计）
 

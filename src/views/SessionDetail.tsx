@@ -1,3 +1,4 @@
+import { useState } from 'react';
 import { Link, useParams, useSearchParams } from 'react-router-dom';
 import { api } from '../lib/api';
 import { useFetch } from '../hooks/useFetch';
@@ -9,6 +10,7 @@ import {
   truncate,
 } from '../lib/format';
 import { EmptyState, ErrorBox, Spinner } from '../components/EmptyState';
+import { ShareDialog } from '../components/ShareDialog';
 import { Timeline } from './Timeline';
 import { ToolCalls } from './ToolCalls';
 import { TokenChart } from './TokenChart';
@@ -17,14 +19,24 @@ import { AgentTree } from './AgentTree';
 const TABS = ['timeline', 'tools', 'tokens', 'tree'] as const;
 type Tab = (typeof TABS)[number];
 
-export function SessionDetail() {
-  const { id = '' } = useParams();
+export function SessionDetail({
+  shareToken,
+}: {
+  /** When set, fetch the session via the share-scoped API and hide owner-only UI. */
+  shareToken?: string;
+} = {}) {
+  const { id: routeId = '' } = useParams();
   const [params, setParams] = useSearchParams();
   const tab: Tab = (TABS as readonly string[]).includes(params.get('tab') || '')
     ? (params.get('tab') as Tab)
     : 'timeline';
 
-  const q = useFetch(() => api.session(id), [id]);
+  const shareMode = !!shareToken;
+  const q = useFetch(
+    () => (shareToken ? api.sharedSession(shareToken) : api.session(routeId)),
+    [shareToken, routeId],
+  );
+  const [shareOpen, setShareOpen] = useState(false);
 
   if (q.loading) return <Spinner label="Loading session…" />;
   if (q.error) return <ErrorBox error={q.error} />;
@@ -42,19 +54,31 @@ export function SessionDetail() {
       <div className="border-b border-gray-200 dark:border-gray-800 px-6 pt-4 pb-2">
         <div className="flex items-baseline justify-between gap-4">
           <div className="min-w-0 flex-1">
-            <Link
-              to="/"
-              className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
-            >
-              ← All sessions
-            </Link>
+            {!shareMode && (
+              <Link
+                to="/"
+                className="text-xs text-blue-600 dark:text-blue-400 hover:underline"
+              >
+                ← All sessions
+              </Link>
+            )}
             <h2 className="text-lg font-semibold mt-1 truncate">{truncate(s.title, 140)}</h2>
             <div className="text-xs text-gray-500 dark:text-gray-400 font-mono truncate">
               {shortenCwd(s.cwd)}
             </div>
           </div>
           <div className="shrink-0 text-right text-xs text-gray-500 dark:text-gray-400 leading-relaxed">
-            <div>{formatDateTime(s.startedAt)}</div>
+            <div className="flex items-center justify-end gap-2">
+              <span>{formatDateTime(s.startedAt)}</span>
+              {!shareMode && (
+                <button
+                  onClick={() => setShareOpen(true)}
+                  className="px-2 py-0.5 text-xs border border-gray-300 dark:border-gray-700 rounded hover:bg-gray-100 dark:hover:bg-gray-800"
+                >
+                  Share
+                </button>
+              )}
+            </div>
             <div className="font-mono">
               {s.messageCount} msg · {s.toolCallCount} tools · {formatTokens(totalTokens)} ·{' '}
               {formatCost(s.totalCostUsd)}
@@ -96,6 +120,10 @@ export function SessionDetail() {
         {tab === 'tokens' && <TokenChart detail={s} />}
         {tab === 'tree' && <AgentTree detail={s} />}
       </div>
+
+      {!shareMode && shareOpen && (
+        <ShareDialog sessionId={s.id} onClose={() => setShareOpen(false)} />
+      )}
     </div>
   );
 }

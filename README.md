@@ -28,6 +28,12 @@ export CC_VIZ_TOKEN=<your-token>
 CC_VIZ_NO_AUTH=1 bun run dev
 ```
 
+## 分享单个 session
+
+在 session 详情页点 **Share** 按钮，可创建一个独立 token 的只读链接（可选 1d / 7d / 永久 TTL），可以随时撤销。分享链接形如 `http://<host>:<port>/share/<token>`，不携带主鉴权 token；分享态严格只读，仅能访问绑定的那一个 session。
+
+共享链接状态保存在本机 SQLite，默认位置 `$HOME/.config/cc-viz/db.sqlite`（可用 `CC_VIZ_DB` 覆盖）。
+
 ## 文档
 
 - [docs/architecture.md](./docs/architecture.md) — 目标、技术栈、目录结构、数据流

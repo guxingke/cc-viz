@@ -13,9 +13,14 @@ export type ToolCallPairClient = {
     userTimestamp: string | undefined;
     outer?: unknown;
   };
+  /** For Task/Agent tool calls: the resolved sub-agent session id, if any. */
+  subagentSessionId?: string;
 };
 
-export function pairToolCallsClient(entries: ParsedEntry[]): ToolCallPairClient[] {
+export function pairToolCallsClient(
+  entries: ParsedEntry[],
+  subagentLinks?: Record<string, string>,
+): ToolCallPairClient[] {
   const pairs = new Map<string, ToolCallPairClient>();
   for (const e of entries) {
     if (e.type !== 'assistant' || !Array.isArray(e.message?.content)) continue;
@@ -30,6 +35,7 @@ export function pairToolCallsClient(entries: ParsedEntry[]): ToolCallPairClient[
         input: (b.input && typeof b.input === 'object' ? b.input : {}) as Record<string, unknown>,
         assistantUuid: e.uuid,
         assistantTimestamp: e.timestamp,
+        subagentSessionId: subagentLinks?.[id],
       });
     }
   }

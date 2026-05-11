@@ -7,7 +7,10 @@ import { EmptyState } from '../components/EmptyState';
 type SortMode = 'time' | 'duration';
 
 export function ToolCalls({ detail }: { detail: SessionDetail }) {
-  const allCalls = useMemo(() => pairToolCallsClient(detail.entries), [detail.entries]);
+  const allCalls = useMemo(
+    () => pairToolCallsClient(detail.entries, detail.subagentLinks),
+    [detail.entries, detail.subagentLinks],
+  );
   const [filter, setFilter] = useState<string>('all');
   const [errorsOnly, setErrorsOnly] = useState(false);
   const [sort, setSort] = useState<SortMode>('time');

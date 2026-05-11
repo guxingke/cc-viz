@@ -3,6 +3,7 @@ import type { ToolCallPairClient } from '../lib/toolCalls';
 import { CodeBlock } from './CodeBlock';
 import { DiffViewer } from './DiffViewer';
 import { truncate } from '../lib/format';
+import { SubagentEmbed } from './SubagentEmbed';
 
 const TOOL_COLORS: Record<string, string> = {
   Read: 'bg-sky-50 dark:bg-sky-950/50 border-sky-200 dark:border-sky-900',
@@ -13,6 +14,7 @@ const TOOL_COLORS: Record<string, string> = {
   Grep: 'bg-purple-50 dark:bg-purple-950/50 border-purple-200 dark:border-purple-900',
   Glob: 'bg-purple-50 dark:bg-purple-950/50 border-purple-200 dark:border-purple-900',
   Task: 'bg-pink-50 dark:bg-pink-950/50 border-pink-300 dark:border-pink-800',
+  Agent: 'bg-pink-50 dark:bg-pink-950/50 border-pink-300 dark:border-pink-800',
   WebFetch: 'bg-indigo-50 dark:bg-indigo-950/50 border-indigo-200 dark:border-indigo-900',
   WebSearch: 'bg-indigo-50 dark:bg-indigo-950/50 border-indigo-200 dark:border-indigo-900',
 };
@@ -20,9 +22,11 @@ const TOOL_COLORS: Record<string, string> = {
 export function ToolCallCard({
   call,
   defaultExpanded = false,
+  compact = false,
 }: {
   call: ToolCallPairClient;
   defaultExpanded?: boolean;
+  compact?: boolean;
 }) {
   const [open, setOpen] = useState(defaultExpanded);
   const color = TOOL_COLORS[call.name] || 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800';
@@ -31,6 +35,26 @@ export function ToolCallCard({
   const durationMs = call.assistantTimestamp && call.result?.userTimestamp
     ? Date.parse(call.result.userTimestamp) - Date.parse(call.assistantTimestamp)
     : null;
+
+  if (compact) {
+    return (
+      <div
+        className={`rounded border my-1 ${color} ${isError ? 'ring-1 ring-red-400' : ''}`}
+      >
+        <div className="px-2.5 py-1 flex items-center gap-2 text-xs">
+          <span className="font-mono font-semibold shrink-0">{call.name}</span>
+          <span className="text-gray-600 dark:text-gray-400 truncate flex-1 font-mono">
+            {summary}
+          </span>
+          {isError && (
+            <span className="text-red-600 dark:text-red-400 text-[10px] uppercase tracking-wide shrink-0">
+              error
+            </span>
+          )}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className={`rounded border my-1.5 ${color} ${isError ? 'ring-1 ring-red-400' : ''}`}>
@@ -148,7 +172,8 @@ function ToolBody({ call }: { call: ToolCallPairClient }) {
         </>
       );
     }
-    case 'Task': {
+    case 'Task':
+    case 'Agent': {
       return (
         <>
           <Label>Task description</Label>
@@ -164,6 +189,7 @@ function ToolBody({ call }: { call: ToolCallPairClient }) {
               <CodeBlock code={resultText} maxLines={20} />
             </>
           )}
+          {call.subagentSessionId && <SubagentEmbed sessionId={call.subagentSessionId} />}
         </>
       );
     }
@@ -191,6 +217,48 @@ function ToolBody({ call }: { call: ToolCallPairClient }) {
       );
     }
   }
+}
+
+export function ToolGroupCard({ pairs }: { pairs: ToolCallPairClient[] }) {
+  const [open, setOpen] = useState(false);
+  if (pairs.length === 0) return null;
+  const name = pairs[0].name;
+  const color =
+    TOOL_COLORS[name] || 'bg-gray-50 dark:bg-gray-900 border-gray-200 dark:border-gray-800';
+  const summaries = pairs.map((p) => summarizeInput(p)).filter((s) => s.length > 0);
+  const preview =
+    summaries.slice(0, 2).join(', ') +
+    (summaries.length > 2 ? `, +${summaries.length - 2} more` : '');
+  const hasError = pairs.some((p) => !!p.result?.isError);
+
+  return (
+    <div className={`rounded border my-1 ${color} ${hasError ? 'ring-1 ring-red-400' : ''}`}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className="w-full text-left px-2.5 py-1 flex items-center gap-2 text-xs"
+      >
+        <span className="font-mono font-semibold shrink-0">
+          {name} <span className="text-gray-500 dark:text-gray-400">× {pairs.length}</span>
+        </span>
+        <span className="text-gray-600 dark:text-gray-400 truncate flex-1 font-mono">
+          {preview}
+        </span>
+        {hasError && (
+          <span className="text-red-600 dark:text-red-400 text-[10px] uppercase tracking-wide shrink-0">
+            error
+          </span>
+        )}
+        <span className="text-gray-400 text-[10px] shrink-0">{open ? '▾' : '▸'}</span>
+      </button>
+      {open && (
+        <div className="px-2.5 pt-1 pb-2 border-t border-gray-200 dark:border-gray-800 space-y-1">
+          {pairs.map((p) => (
+            <ToolCallCard key={p.id} call={p} compact />
+          ))}
+        </div>
+      )}
+    </div>
+  );
 }
 
 function Label({ children }: { children: React.ReactNode }) {

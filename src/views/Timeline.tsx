@@ -4,27 +4,51 @@ import type { SessionDetail } from '../lib/types';
 import { MessageBubble } from '../components/MessageBubble';
 import { pairToolCallsClient } from '../lib/toolCalls';
 
+const CONCISE_KEY = 'cc-viz:timeline-concise';
+
 export function Timeline({ detail }: { detail: SessionDetail }) {
   const parentRef = useRef<HTMLDivElement>(null);
+  const [concise, setConcise] = useState<boolean>(() => {
+    if (typeof window === 'undefined') return false;
+    return window.localStorage.getItem(CONCISE_KEY) === '1';
+  });
+  useEffect(() => {
+    try {
+      window.localStorage.setItem(CONCISE_KEY, concise ? '1' : '0');
+    } catch {
+      // ignore quota / disabled storage
+    }
+  }, [concise]);
 
   const { rows, toolMap } = useMemo(() => {
-    const pairs = pairToolCallsClient(detail.entries);
+    const pairs = pairToolCallsClient(detail.entries, detail.subagentLinks);
     const toolMap = new Map(pairs.map((p) => [p.id, p]));
     // Filter to user/assistant/system entries; drop user entries that contain
     // ONLY tool_result blocks (already merged into tool cards above).
+    // In concise mode, also drop turn_duration system rows and assistant
+    // entries whose only content is thinking (no text, no tool_use).
     const rows = detail.entries.filter((e) => {
       if (e.type === 'system') {
+        if (concise) return false;
         return (e as { subtype?: unknown }).subtype === 'turn_duration';
       }
       if (e.type !== 'user' && e.type !== 'assistant') return false;
-      if (e.type === 'user' && Array.isArray(e.message?.content)) {
+      if (Array.isArray(e.message?.content)) {
         const blocks = e.message!.content as Array<{ type?: unknown }>;
-        if (blocks.length > 0 && blocks.every((b) => b.type === 'tool_result')) return false;
+        if (e.type === 'user' && blocks.length > 0 && blocks.every((b) => b.type === 'tool_result')) {
+          return false;
+        }
+        if (concise && e.type === 'assistant') {
+          const hasVisible = blocks.some(
+            (b) => b.type === 'text' || b.type === 'tool_use',
+          );
+          if (!hasVisible) return false;
+        }
       }
       return true;
     });
     return { rows, toolMap };
-  }, [detail.entries]);
+  }, [detail.entries, concise]);
 
   const virtualizer = useVirtualizer({
     count: rows.length,
@@ -112,7 +136,19 @@ export function Timeline({ detail }: { detail: SessionDetail }) {
             → Next sub-agent
           </button>
         )}
-        <span className="ml-auto font-mono">
+        <button
+          onClick={() => setConcise((v) => !v)}
+          className={
+            'ml-auto text-[11px] uppercase tracking-wide px-2 py-0.5 rounded border ' +
+            (concise
+              ? 'border-blue-400 dark:border-blue-500 text-blue-700 dark:text-blue-300 bg-blue-50 dark:bg-blue-950/40'
+              : 'border-gray-200 dark:border-gray-700 hover:text-gray-900 dark:hover:text-gray-100 hover:border-gray-400 dark:hover:border-gray-500')
+          }
+          title="Concise mode: hide thinking, turn-duration & usage; compact tool calls"
+        >
+          {concise ? '● Concise' : '○ Concise'}
+        </button>
+        <span className="font-mono">
           {rows.length} rows · {toolMap.size} tool calls
         </span>
       </div>
@@ -140,7 +176,12 @@ export function Timeline({ detail }: { detail: SessionDetail }) {
                   transform: `translateY(${vi.start}px)`,
                 }}
               >
-                <MessageBubble entry={entry} toolPairs={toolMap} />
+                <MessageBubble
+                  entry={entry}
+                  toolPairs={toolMap}
+                  startedAt={detail.startedAt}
+                  concise={concise}
+                />
               </div>
             );
           })}
