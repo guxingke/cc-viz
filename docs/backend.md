@@ -13,7 +13,7 @@
    - `'/sessions/:id'` → 同上（让客户端路由刷新可用）
    - `'/api/*'` → `handleApi(req)`
 4. 控制台打印访问 URL；若鉴权启用则附 `?token=…`，并提示如何固定 token。
-5. 除非 `NO_OPEN=1`，自动调用平台 opener（macOS `open` / Win `start` / Linux `xdg-open`）打开浏览器。
+5. 若设置了 `CC_VIZ_OPEN=1`，调用平台 opener（macOS `open` / Win `start` / Linux `xdg-open`）打开浏览器；默认不自动打开。
 
 ## 鉴权（`src/server/auth.ts`）
 

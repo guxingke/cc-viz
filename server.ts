@@ -28,8 +28,12 @@ if (existsSync(cliPath)) {
       stdout: 'inherit',
       stderr: 'inherit',
     });
-    process.on('SIGINT', () => proc.kill());
-    process.on('SIGTERM', () => proc.kill());
+    const shutdown = () => {
+      proc.kill();
+      process.exit(0);
+    };
+    process.on('SIGINT', shutdown);
+    process.on('SIGTERM', shutdown);
   }
 } else if (!existsSync(cssOut)) {
   console.warn('[tailwind] CLI missing and no built CSS — page will be unstyled.');
@@ -74,7 +78,7 @@ if (authDisabled()) {
   }
 }
 
-if (!process.env.NO_OPEN) {
+if (process.env.CC_VIZ_OPEN) {
   const opener =
     process.platform === 'darwin'
       ? 'open'

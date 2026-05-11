@@ -9,7 +9,7 @@ bun run start      # bun server.ts
 bun run typecheck  # tsc --noEmit
 ```
 
-默认监听 `http://localhost:3456`；启动时自动用平台 opener 打开浏览器（除非 `NO_OPEN=1`）。
+默认监听 `http://localhost:3456`；启动后不自动打开浏览器，需要时设置 `CC_VIZ_OPEN=1` 启用。
 
 ## 环境变量
 
@@ -19,7 +19,7 @@ bun run typecheck  # tsc --noEmit
 | `CC_VIZ_TOKEN` | 启动时随机生成 | 鉴权 token；不设置则每次启动变动 |
 | `CC_VIZ_NO_AUTH` | unset | 设为 `1` 完全关闭鉴权 |
 | `CC_VIZ_DB` | `$HOME/.config/cc-viz/db.sqlite` | SQLite 状态库路径；分享链接持久化于此 |
-| `NO_OPEN` | unset | 设为任意非空值则不自动打开浏览器 |
+| `CC_VIZ_OPEN` | unset | 设为任意非空值则启动时自动打开浏览器 |
 | `NO_CSS_WATCH` | unset | 设为任意非空值则跳过 Tailwind `--watch` 子进程 |
 
 启动日志会打印带 token 的访问 URL；首次访问把 token 换成 Cookie 后即可去掉 query。
