@@ -2,6 +2,7 @@ import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import index from './src/index.html';
 import { authDisabled, loadToken } from './src/server/auth';
+import { getPrimaryLanAddress } from './src/server/lan';
 import { handleApi } from './src/server/routes';
 
 const { token: AUTH_TOKEN, generated: TOKEN_GENERATED } = loadToken();
@@ -62,10 +63,18 @@ const server = Bun.serve({
   },
 });
 
-const baseUrl = `http://localhost:${server.port}`;
+const lanIp = getPrimaryLanAddress();
+const localBaseUrl = `http://localhost:${server.port}`;
+const lanBaseUrl = lanIp ? `http://${lanIp}:${server.port}` : null;
+// Prefer LAN IP for the auto-open URL so the browser's origin matches what
+// share links should use; falls back to localhost when no LAN address.
+const baseUrl = lanBaseUrl ?? localBaseUrl;
 const openUrl = authDisabled() ? baseUrl : `${baseUrl}/?token=${AUTH_TOKEN}`;
 
-console.log(`→ Claude Viz running at ${baseUrl}`);
+console.log(`→ Claude Viz running at ${localBaseUrl}`);
+if (lanBaseUrl) {
+  console.log(`  LAN:  ${lanBaseUrl}   (use this when sharing)`);
+}
 if (authDisabled()) {
   console.log('  ⚠️  CC_VIZ_NO_AUTH=1 — authentication disabled');
 } else {

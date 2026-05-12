@@ -5,7 +5,8 @@
   "scripts": {
     "dev": "bun --hot server.ts",
     "start": "bun server.ts",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "release": "bash scripts/release.sh"
   },
   "dependencies": {
     "@tanstack/react-virtual": "^3.10.0",

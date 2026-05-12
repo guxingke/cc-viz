@@ -11,6 +11,8 @@ bun run typecheck  # tsc --noEmit
 
 默认监听 `http://localhost:3456`；启动后不自动打开浏览器，需要时设置 `CC_VIZ_OPEN=1` 启用。
 
+启动日志同时会探测主网卡 LAN 地址（macOS / Linux 解析默认路由出口网卡）并打印一行 `LAN: http://<ip>:3456`；该地址用于"分享给同局域网的人"场景 —— 浏览器若通过 LAN IP 打开页面，分享对话框复制出的链接 origin 自动就是 LAN IP，无需额外配置。`CC_VIZ_OPEN=1` 自动打开的也是 LAN URL（若拿到）。
+
 ## 环境变量
 
 | 变量 | 默认 | 作用 |
