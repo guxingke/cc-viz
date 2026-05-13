@@ -94,13 +94,21 @@
 
 ```ts
 PRICING = {
-  'claude-opus-4-7'   | 'claude-opus-4-6'   | 'claude-opus-4'   : { 15, 75, 18.75, 1.5 },
-  'claude-sonnet-4-6' | 'claude-sonnet-4'                       : {  3, 15,  3.75, 0.3 },
-  'claude-haiku-4-5'  | 'claude-haiku-4'                        : {  1,  5,  1.25, 0.1 },
-  default                                                       : {  3, 15,  3.75, 0.3 },
+  'claude-opus-4-7'                                             : {  5, 25,  6.25, 10, 0.5 },
+  'claude-opus-4-6'   | 'claude-opus-4'                         : { 15, 75, 18.75, 30, 1.5 },
+  'claude-sonnet-4-6' | 'claude-sonnet-4'                       : {  3, 15,  3.75,  6, 0.3 },
+  'claude-haiku-4-5'  | 'claude-haiku-4'                        : {  1,  5,  1.25,  2, 0.1 },
+  default                                                       : {  3, 15,  3.75,  6, 0.3 },
 }
+// 列：input, output, cache_write_5m, cache_write_1h, cache_read  (USD per 1M token)
 ```
+
+注意：**Opus 4.7 自单独一档**（$5/$25），不与 4.6/4 共用 Opus 老价（$15/$75）。Anthropic 在 4.7 主动下调定价。
 
 `resolvePricing(model)` 先精确匹配，再剥掉末尾 `[xxx]`（如 `[1m]`）与 `-YYYYMMDD` 日期后缀再匹配；都不中走 `default` 并标记 `known: false`。
 
-`calcCost(model, usage)` 单位 USD per 1M token，把 input / output / cache_write / cache_read 各自相乘后求和。
+`calcCost(model, usage)` 单位 USD per 1M token，分项相乘后求和：
+- input × `input`
+- output × `output`
+- cache_read × `cache_read`
+- cache_write 优先读 `usage.cache_creation.ephemeral_5m_input_tokens` / `ephemeral_1h_input_tokens` 分别乘 5m / 1h 单价；缺失时把 `cache_creation_input_tokens` 当作 5m 兜底（更便宜的档，避免误报）。

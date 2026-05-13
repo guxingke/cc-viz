@@ -160,7 +160,7 @@ export function MessageBubble({
           ),
         )}
       </div>
-      {isAssistant && !concise && usage && (
+      {isAssistant && !concise && usage && entry.isFirstOfMessage && (
         <div className="mt-1 text-[10px] text-gray-400 dark:text-gray-500 font-mono">
           {formatTokens(totalTokens)} tok · {formatCost(cost)}
           {(Number(usage.cache_read_input_tokens) || 0) > 0 && (

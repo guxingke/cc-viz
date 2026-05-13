@@ -62,6 +62,14 @@ export type RawEntry = {
 - `cache_creation_input_tokens`
 - `cache_read_input_tokens`
 
+### 踩坑：同 `message.id` 被拆成多条 entry
+
+Claude Code 把**一次 assistant API 响应里的多个 content block**（thinking / text / 多个 tool_use）拆成**多条独立的 JSONL entry**，但**每条 entry 都复制了完整的 `message.usage`**。例如某次响应含 1 个 thinking + 1 个 text + 3 个 tool_use，就会写入 5 条 assistant entry，`message.id` 相同，`usage` 完全相同。
+
+**直接 `for entry in assistant` 累加 token / cost 会按 block 数放大**（抽样实测 1.2× ~ 3.0×，tool_use 越多放大越严重）。
+
+约定：parser 在排序后扫一遍，把每个 `message.id` 的**首条** assistant entry 标记为 `isFirstOfMessage = true`，后续重复标 `false`；无 `message.id` 的视为 true。下游所有 usage 聚合（`totalTokens` / `totalCostUsd` / `TokenChart` 时间序列 / `MessageBubble` 显示）**只在 `isFirstOfMessage` 为 true 时计入**。
+
 ## 解析规则（`src/server/parser.ts`）
 
 - **跳过空行与解析失败行**，分别计入 `skippedLines` / `parseErrors`，不抛错。
@@ -76,7 +84,7 @@ export type RawEntry = {
   3. 首条 user 消息内首个 text block，截断到 80 字 + `…`
   4. 兜底 `'Untitled session'`
 - **统计**：
-  - 仅 assistant 的 `usage` 计入 token 与成本
+  - 仅 assistant 的 `usage` 计入 token 与成本，且**按 `message.id` 去重**（见上文"踩坑"段；标记位 `isFirstOfMessage`）
   - `toolCallCount` 计 assistant content 中 `tool_use` 块数量
   - 任意带 `isSidechain` 的 entry 触发 `hasSubagents = true`
 - **主模型**：assistant 消息 `model` 字段出现次数最多者。
@@ -93,7 +101,7 @@ SessionSummary { id, projectId, cwd, title, startedAt, endedAt,
                  messageCount, toolCallCount, totalTokens, totalCostUsd,
                  model, hasSubagents }
 SessionDetail = SessionSummary & { entries: ParsedEntry[], tree: TreeNode | null }
-ParsedEntry   = RawEntry & { recognized: boolean }
+ParsedEntry   = RawEntry & { recognized: boolean, isFirstOfMessage?: boolean }
 TreeNode      { uuid, parentUuid, children, isSidechain }
 ```
 

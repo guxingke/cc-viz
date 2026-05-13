@@ -33,8 +33,14 @@ export type ContentBlock =
 export type TokenUsage = {
   input_tokens?: number;
   output_tokens?: number;
+  /** Aggregate of 5m + 1h cache writes. Prefer `cache_creation` breakdown when present
+   *  for accurate cost calc (1h cache is 2× input vs 5m cache 1.25×). */
   cache_creation_input_tokens?: number;
   cache_read_input_tokens?: number;
+  cache_creation?: {
+    ephemeral_5m_input_tokens?: number;
+    ephemeral_1h_input_tokens?: number;
+  };
   [key: string]: unknown;
 };
 
@@ -66,6 +72,11 @@ export type RawEntry = {
 export type ParsedEntry = RawEntry & {
   /** Whether this entry was successfully recognized; unknown types are kept but flagged. */
   recognized: boolean;
+  /** For assistant entries only: true on the first entry sharing a given `message.id`.
+   *  Claude Code splits one API response into multiple JSONL entries (one per content
+   *  block) and duplicates `message.usage` on each. Use this flag to dedupe when
+   *  aggregating tokens / cost. Undefined for non-assistant entries. */
+  isFirstOfMessage?: boolean;
 };
 
 export type TreeNode = {

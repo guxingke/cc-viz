@@ -46,6 +46,7 @@ export function TokenChart({ detail }: { detail: SessionDetail }) {
     let knownAll = true;
     for (const e of detail.entries) {
       if (e.type !== 'assistant') continue;
+      if (!e.isFirstOfMessage) continue;
       const u = e.message?.usage;
       if (!u) continue;
       const input = Number(u.input_tokens) || 0;

@@ -76,6 +76,23 @@ export function parseSessionText(text: string, sessionId: string, projectId: str
       return ta - tb;
     });
 
+  // Mark first-of-message on assistant entries so downstream consumers can dedupe usage.
+  const seenMsgIds = new Set<string>();
+  for (const e of parsedEntries) {
+    if (e.type !== 'assistant') continue;
+    const mid = e.message?.id;
+    if (!mid) {
+      e.isFirstOfMessage = true;
+      continue;
+    }
+    if (seenMsgIds.has(mid)) {
+      e.isFirstOfMessage = false;
+    } else {
+      seenMsgIds.add(mid);
+      e.isFirstOfMessage = true;
+    }
+  }
+
   // Tree from parentUuid relationship — must include all uuid-bearing entries
   // because assistant/user entries often have parentUuid pointing to a
   // system/attachment node, so filtering breaks the chain.
@@ -113,10 +130,12 @@ export function parseSessionText(text: string, sessionId: string, projectId: str
     }
 
     if (e.type === 'assistant') {
-      const usage = e.message?.usage;
-      if (usage) {
-        addUsage(totalTokens, usage);
-        totalCostUsd += calcCost(e.message?.model, usage);
+      if (e.isFirstOfMessage) {
+        const usage = e.message?.usage;
+        if (usage) {
+          addUsage(totalTokens, usage);
+          totalCostUsd += calcCost(e.message?.model, usage);
+        }
       }
       const m = e.message?.model;
       if (m) modelCounts.set(m, (modelCounts.get(m) || 0) + 1);
