@@ -4,7 +4,8 @@
 
 层级：`BrowserRouter` → 外层 `Routes`（分流分享态）→ 普通路径下再走 `AuthGate` → `Shell` → 内层 `Routes`。
 
-- **Shell**：固定头部（"Claude / Codex Viz" 标题 + `ThemeToggle`）+ 滚动主体。分享态下 `shareMode` prop 把 Logo 改成纯文本（不再链到 `/`），副标题改为 "Shared session (read-only)"。
+- **Shell**：固定头部（"Claude / Codex / Kimi Viz" 标题 + `ThemeToggle`）+ 滚动主体。分享态下 `shareMode` prop 把 Logo 改成纯文本（不再链到 `/`），副标题改为 "Shared session (read-only)"。
+- **SourceBadge**：`SessionList` 在项目与会话行展示 `claude` / `codex` / `kimi` 来源标签。
 - **AuthGate**：
   - 状态：`checking | authed | unauthed`。
   - 首次挂载：若 URL 携带 `?token=…` 则先 `POST /api/_auth/login`（成功后从 URL 清除 token），否则直接 `GET /api/_auth/check`。

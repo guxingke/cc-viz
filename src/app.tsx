@@ -20,10 +20,10 @@ function Shell({
     <div className="h-full flex flex-col bg-white dark:bg-gray-950 text-gray-900 dark:text-gray-100">
       <header className="border-b border-gray-200 dark:border-gray-800 px-6 py-2.5 flex items-center gap-4 shrink-0">
         {shareMode ? (
-          <span className="text-base font-semibold tracking-tight">Claude / Codex Viz</span>
+          <span className="text-base font-semibold tracking-tight">Claude / Codex / Kimi Viz</span>
         ) : (
           <Link to="/" className="text-base font-semibold tracking-tight">
-            Claude / Codex Viz
+            Claude / Codex / Kimi Viz
           </Link>
         )}
         <span className="text-[11px] text-gray-500 dark:text-gray-400">

@@ -4,6 +4,7 @@ import type {
   ParsedEntry,
   ProjectSummary,
   SessionDetail,
+  SessionSource,
   SessionSummary,
   ShareCreateInput,
   ShareTTL,
@@ -49,6 +50,9 @@ async function getAllSessionSummaries(): Promise<SessionSummary[]> {
     p.sessions.map(async (s) => {
       const parsed = await getParsedSession(s.absPath, s.id, p.id);
       const { entries: _entries, tree: _tree, ...summary } = parsed.detail;
+      if (!summary.cwd) {
+        summary.cwd = p.cwd || decodeProjectId(p.id, p.source);
+      }
       return summary as SessionSummary;
     }),
   );
@@ -89,8 +93,9 @@ async function getProjectSummaries(): Promise<ProjectSummary[]> {
   return all;
 }
 
-function decodeProjectId(id: string, source: 'claude' | 'codex'): string {
+function decodeProjectId(id: string, source: SessionSource): string {
   if (source === 'codex') return id.replace(/^codex:/, '') || '(unknown cwd)';
+  if (source === 'kimi') return id.replace(/^kimi:/, '') || '(unknown cwd)';
   // Best-effort: replace leading "-" with "/" then convert dashes between segments.
   // Not perfect, but only used when no session reveals the cwd.
   return id.replace(/^-/, '/').replace(/-/g, '/');
@@ -100,9 +105,11 @@ async function getSessionDetail(id: string): Promise<SessionDetail | null> {
   const file = await findSessionById(id);
   if (!file) return null;
   const parsed = await getParsedSession(file.absPath, file.id, file.projectId);
-  const links = await buildSubagentLinks(id, parsed.detail.entries);
-  if (Object.keys(links).length === 0) return parsed.detail;
-  return { ...parsed.detail, subagentLinks: links };
+  const detail = parsed.detail;
+  if (!detail.cwd && file.cwd) detail.cwd = file.cwd;
+  const links = await buildSubagentLinks(id, detail.entries);
+  if (Object.keys(links).length === 0) return detail;
+  return { ...detail, subagentLinks: links };
 }
 
 const AGENT_TOOL_NAMES = new Set(['Task', 'Agent']);

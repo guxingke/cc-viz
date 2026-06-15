@@ -88,9 +88,11 @@ export type TreeNode = {
   isSidechain: boolean;
 };
 
+export type SessionSource = 'claude' | 'codex' | 'kimi';
+
 export type ProjectSummary = {
   id: string;
-  source: 'claude' | 'codex';
+  source: SessionSource;
   cwd: string;
   sessionCount: number;
   totalTokens: number;
@@ -101,7 +103,7 @@ export type ProjectSummary = {
 export type SessionSummary = {
   id: string;
   projectId: string;
-  source: 'claude' | 'codex';
+  source: SessionSource;
   cwd: string;
   title: string;
   startedAt: string;

@@ -1,9 +1,9 @@
-# Claude / Codex Session Visualizer
+# Claude / Codex / Kimi Session Visualizer
 
-一个**纯本地**的 Web 工具，读取本机 Claude Code 与 Codex 留下的 JSONL session 文件，在浏览器里查看对话时间线、工具调用、token 与决策树。
+一个**纯本地**的 Web 工具，读取本机 Claude Code、Codex 与 Kimi Code CLI 留下的 JSONL session 文件，在浏览器里查看对话时间线、工具调用、token 与决策树。
 
-- 数据源：Claude Code `~/.claude/projects/`，Codex `~/.codex/sessions/`
-- 不修改任何 Claude Code / Codex 数据，只读
+- 数据源：Claude Code `~/.claude/projects/`，Codex `~/.codex/sessions/`，Kimi `~/.kimi-code/sessions/`
+- 不修改任何 Claude Code / Codex / Kimi 数据，只读
 - 不联网、不上传，单进程跑在 `localhost`
 - 默认开启 token 鉴权（loopback 上也不裸奔）
 

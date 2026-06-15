@@ -1,4 +1,4 @@
-import { existsSync } from 'node:fs';
+import { existsSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 import index from './src/index.html';
 import { authDisabled, loadToken } from './src/server/auth';
@@ -13,15 +13,31 @@ const cliPath = join(import.meta.dir, 'node_modules', '.bin', 'tailwindcss');
 const cssIn = join(import.meta.dir, 'src', 'styles.css');
 const cssOut = join(import.meta.dir, 'src', 'styles.built.css');
 
+function cssBuildIsFresh(): boolean {
+  try {
+    const out = statSync(cssOut);
+    const inn = statSync(cssIn);
+    return out.mtimeMs >= inn.mtimeMs;
+  } catch {
+    return false;
+  }
+}
+
 if (existsSync(cliPath)) {
   // One-shot initial build so the first request has CSS.
-  const built = Bun.spawnSync({
-    cmd: [cliPath, '-i', cssIn, '-o', cssOut],
-    stdout: 'pipe',
-    stderr: 'pipe',
-  });
-  if (built.exitCode !== 0) {
-    console.warn('[tailwind] initial build failed:', built.stderr.toString());
+  // In production/daemon mode (NO_CSS_WATCH=1) we trust that `bun run release`
+  // already built the CSS, so skip the build entirely if the output exists.
+  // This lets the daemon run in environments where `node` is not on PATH.
+  const shouldBuildInitial = watch ? true : !existsSync(cssOut);
+  if (shouldBuildInitial && !cssBuildIsFresh()) {
+    const built = Bun.spawnSync({
+      cmd: [cliPath, '-i', cssIn, '-o', cssOut],
+      stdout: 'pipe',
+      stderr: 'pipe',
+    });
+    if (built.exitCode !== 0) {
+      console.warn('[tailwind] initial build failed:', built.stderr.toString());
+    }
   }
   if (watch) {
     const proc = Bun.spawn({
@@ -71,7 +87,7 @@ const lanBaseUrl = lanIp ? `http://${lanIp}:${server.port}` : null;
 const baseUrl = lanBaseUrl ?? localBaseUrl;
 const openUrl = authDisabled() ? baseUrl : `${baseUrl}/?token=${AUTH_TOKEN}`;
 
-console.log(`→ Claude / Codex Viz running at ${localBaseUrl}`);
+console.log(`→ Claude / Codex / Kimi Viz running at ${localBaseUrl}`);
 if (lanBaseUrl) {
   console.log(`  LAN:  ${lanBaseUrl}   (use this when sharing)`);
 }

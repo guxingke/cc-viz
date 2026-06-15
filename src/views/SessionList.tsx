@@ -9,6 +9,7 @@ import {
   truncate,
 } from '../lib/format';
 import { useFetch } from '../hooks/useFetch';
+import type { SessionSource } from '../lib/types';
 import { EmptyState, ErrorBox, Spinner } from '../components/EmptyState';
 
 export function SessionList() {
@@ -190,7 +191,7 @@ function ProjectRow({
   onClick,
 }: {
   label: string;
-  source?: 'claude' | 'codex';
+  source?: SessionSource;
   hint: string;
   active: boolean;
   onClick: () => void;
@@ -214,11 +215,13 @@ function ProjectRow({
   );
 }
 
-function SourceBadge({ source }: { source: 'claude' | 'codex' }) {
+function SourceBadge({ source }: { source: SessionSource }) {
   const cls =
     source === 'codex'
       ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
-      : 'bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300';
+      : source === 'kimi'
+        ? 'bg-purple-100 text-purple-700 dark:bg-purple-950 dark:text-purple-300'
+        : 'bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300';
   return (
     <span className={`inline-block rounded px-1 py-0.5 text-[10px] font-mono uppercase ${cls}`}>
       {source}

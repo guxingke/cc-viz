@@ -3,6 +3,7 @@ import type {
   ParsedEntry,
   RawEntry,
   SessionDetail,
+  SessionSource,
   TokenUsage,
   TreeNode,
 } from '../lib/types';
@@ -48,9 +49,13 @@ export function parseSessionText(text: string, sessionId: string, projectId: str
     }
   }
 
-  const source = sessionId.startsWith('codex:') ? 'codex' : 'claude';
+  const source: SessionSource = sessionId.startsWith('codex:')
+    ? 'codex'
+    : sessionId.startsWith('kimi:')
+      ? 'kimi'
+      : 'claude';
   if (source === 'codex') {
-    const result = parseNormalizedEntries(
+    return parseNormalizedEntries(
       normalizeCodexEntries(rawEntries),
       sessionId,
       projectId,
@@ -58,7 +63,16 @@ export function parseSessionText(text: string, sessionId: string, projectId: str
       skippedLines,
       parseErrors,
     );
-    return result;
+  }
+  if (source === 'kimi') {
+    return parseNormalizedEntries(
+      normalizeKimiEntries(rawEntries),
+      sessionId,
+      projectId,
+      source,
+      skippedLines,
+      parseErrors,
+    );
   }
 
   return parseNormalizedEntries(rawEntries, sessionId, projectId, source, skippedLines, parseErrors);
@@ -68,7 +82,7 @@ function parseNormalizedEntries(
   rawEntries: RawEntry[],
   sessionId: string,
   projectId: string,
-  source: 'claude' | 'codex',
+  source: SessionSource,
   skippedLines: number,
   parseErrors: number,
 ): ParseResult {
@@ -490,6 +504,288 @@ function codexUsageKey(payload: Record<string, unknown>): string {
   });
 }
 
+function normalizeKimiEntries(entries: RawEntry[]): RawEntry[] {
+  const out: RawEntry[] = [];
+  let seq = 0;
+  let cwd = '';
+  let model = '';
+  let lastUuid: string | null = null;
+
+  type Step = {
+    content: ContentBlock[];
+    usage: TokenUsage | null;
+    timestamp: string | undefined;
+  };
+  let currentStep: Step | null = null;
+  let lastKimiUsage: {
+    inputOther: number;
+    output: number;
+    inputCacheRead: number;
+    inputCacheCreation: number;
+  } | null = null;
+
+  const pushEntry = (entry: RawEntry) => {
+    const uuid = entry.uuid ?? `kimi-${++seq}`;
+    const parentUuid =
+      typeof entry.parentUuid === 'string' || entry.parentUuid === null
+        ? entry.parentUuid
+        : lastUuid;
+    out.push({
+      ...entry,
+      uuid,
+      parentUuid,
+      cwd: typeof entry.cwd === 'string' && entry.cwd ? entry.cwd : cwd,
+    });
+    lastUuid = uuid;
+  };
+
+  const ensureStep = (ts: string | undefined) => {
+    if (!currentStep) currentStep = { content: [], usage: null, timestamp: ts };
+  };
+
+  const flushStep = () => {
+    if (!currentStep || currentStep.content.length === 0) {
+      currentStep = null;
+      return;
+    }
+    pushEntry({
+      type: 'assistant',
+      timestamp: currentStep.timestamp,
+      message: {
+        role: 'assistant',
+        model,
+        content: currentStep.content,
+        usage: currentStep.usage || undefined,
+      },
+    });
+    currentStep = null;
+  };
+
+  const attachUsageToLastAssistant = (usage: TokenUsage) => {
+    for (let i = out.length - 1; i >= 0; i--) {
+      if (out[i].type === 'assistant') {
+        const msg = out[i].message;
+        if (msg) msg.usage = usage;
+        break;
+      }
+    }
+  };
+
+  for (const e of entries) {
+    const ts = e.timestamp || kimiTimestamp(e);
+
+    if (e.type === 'config.update') {
+      const cfg = e as Record<string, unknown>;
+      if (typeof cfg.cwd === 'string' && cfg.cwd) cwd = cfg.cwd;
+      if (typeof cfg.modelAlias === 'string' && cfg.modelAlias) model = cfg.modelAlias;
+      continue;
+    }
+
+    if (e.type === 'turn.prompt') {
+      flushStep();
+      const text = extractKimiPromptText((e as { input?: unknown }).input);
+      if (text) {
+        pushEntry({
+          ...e,
+          type: 'user',
+          timestamp: ts,
+          message: { role: 'user', content: [{ type: 'text', text }] },
+        });
+      }
+      continue;
+    }
+
+    if (e.type === 'context.append_message') {
+      const msg = (e as { message?: unknown }).message;
+      if (!msg || typeof msg !== 'object') continue;
+      const m = msg as { role?: string; content?: unknown };
+      if (m.role === 'user') continue; // duplicate of turn.prompt
+      if (m.role === 'assistant') {
+        flushStep();
+        const content = normalizeKimiContent(m.content);
+        if (content.length > 0) {
+          pushEntry({
+            ...e,
+            type: 'assistant',
+            timestamp: ts,
+            message: { role: 'assistant', model, content },
+          });
+        }
+      }
+      continue;
+    }
+
+    if (e.type === 'context.append_loop_event') {
+      const event = (e as { event?: unknown }).event;
+      if (!event || typeof event !== 'object') continue;
+      const ev = event as Record<string, unknown>;
+      const eventType = typeof ev.type === 'string' ? ev.type : '';
+
+      if (eventType === 'step.begin') {
+        flushStep();
+        currentStep = { content: [], usage: null, timestamp: ts };
+      } else if (eventType === 'step.end') {
+        flushStep();
+      } else if (eventType === 'content.part') {
+        const part = ev.part;
+        if (!part || typeof part !== 'object') continue;
+        const p = part as Record<string, unknown>;
+        const partType = typeof p.type === 'string' ? p.type : '';
+        ensureStep(ts);
+        if (partType === 'think') {
+          const text = String(p.thinking ?? '');
+          if (text) currentStep!.content.push({ type: 'thinking', thinking: text });
+        } else if (partType === 'text') {
+          const text = String(p.text ?? '');
+          if (text) currentStep!.content.push({ type: 'text', text });
+        }
+      } else if (eventType === 'tool.call') {
+        ensureStep(ts);
+        const id = String(ev.toolCallId || `kimi-call-${++seq}`);
+        const name = String(ev.name || 'tool');
+        currentStep!.content.push({
+          type: 'tool_use',
+          id,
+          name,
+          input: normalizeKimiToolInput(ev.args),
+        });
+      } else if (eventType === 'tool.result') {
+        const toolCallId = typeof ev.toolCallId === 'string' ? ev.toolCallId : '';
+        if (toolCallId) {
+          flushStep();
+          pushEntry({
+            ...e,
+            type: 'user',
+            timestamp: ts,
+            message: {
+              role: 'user',
+              content: [
+                {
+                  type: 'tool_result',
+                  tool_use_id: toolCallId,
+                  content: ev.result,
+                  is_error: ev.is_error === true,
+                },
+              ],
+            },
+          });
+        }
+      }
+      continue;
+    }
+
+    if (e.type === 'usage.record') {
+      const usageResult = normalizeKimiUsage((e as { usage?: unknown }).usage, lastKimiUsage);
+      if (usageResult) {
+        lastKimiUsage = usageResult.current;
+        if (currentStep) {
+          currentStep.usage = usageResult.usage;
+        } else {
+          attachUsageToLastAssistant(usageResult.usage);
+        }
+      }
+      continue;
+    }
+
+    if (e.type === 'permission.record_approval_result') {
+      flushStep();
+      const toolName = String((e as { toolName?: unknown }).toolName || 'tool');
+      pushEntry({
+        ...e,
+        type: 'system',
+        timestamp: ts,
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: `Approved: ${toolName}` }],
+        },
+      });
+    }
+  }
+
+  flushStep();
+  return out;
+}
+
+function kimiTimestamp(e: RawEntry): string | undefined {
+  const t = (e as { time?: unknown }).time;
+  if (typeof t === 'number') return new Date(t).toISOString();
+  return e.timestamp;
+}
+
+function extractKimiPromptText(input: unknown): string {
+  if (typeof input === 'string') return input;
+  if (!Array.isArray(input)) return '';
+  for (const item of input) {
+    if (!item || typeof item !== 'object') continue;
+    const type = String((item as { type?: unknown }).type);
+    if (type === 'text') {
+      const text = String((item as { text?: unknown }).text ?? '');
+      if (text) return text;
+    }
+  }
+  return '';
+}
+
+function normalizeKimiContent(content: unknown): ContentBlock[] {
+  if (typeof content === 'string') return content ? [{ type: 'text', text: content }] : [];
+  if (!Array.isArray(content)) return [];
+  const out: ContentBlock[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== 'object') continue;
+    const b = block as Record<string, unknown>;
+    const type = typeof b.type === 'string' ? b.type : '';
+    if (type === 'text') {
+      const text = String(b.text ?? '');
+      if (text) out.push({ type: 'text', text });
+    }
+  }
+  return out;
+}
+
+function normalizeKimiToolInput(args: unknown): Record<string, unknown> {
+  if (args && typeof args === 'object') return args as Record<string, unknown>;
+  if (typeof args === 'string') {
+    try {
+      const parsed = JSON.parse(args);
+      if (parsed && typeof parsed === 'object') return parsed as Record<string, unknown>;
+    } catch {
+      // fall through
+    }
+    return { value: args };
+  }
+  return {};
+}
+
+function normalizeKimiUsage(
+  usage: unknown,
+  previous: { inputOther: number; output: number; inputCacheRead: number; inputCacheCreation: number } | null,
+): { usage: TokenUsage; current: { inputOther: number; output: number; inputCacheRead: number; inputCacheCreation: number } } | null {
+  if (!usage || typeof usage !== 'object') return null;
+  const u = usage as Record<string, unknown>;
+  const current = {
+    inputOther: Number(u.inputOther) || 0,
+    output: Number(u.output) || 0,
+    inputCacheRead: Number(u.inputCacheRead) || 0,
+    inputCacheCreation: Number(u.inputCacheCreation) || 0,
+  };
+  const prev = previous ?? {
+    inputOther: 0,
+    output: 0,
+    inputCacheRead: 0,
+    inputCacheCreation: 0,
+  };
+  return {
+    usage: {
+      input_tokens: Math.max(0, current.inputOther - prev.inputOther),
+      output_tokens: Math.max(0, current.output - prev.output),
+      cache_read_input_tokens: Math.max(0, current.inputCacheRead - prev.inputCacheRead),
+      cache_creation_input_tokens: Math.max(0, current.inputCacheCreation - prev.inputCacheCreation),
+      priced: false,
+    },
+    current,
+  };
+}
+
 function extractFirstText(content: unknown): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
@@ -500,8 +796,12 @@ function extractFirstText(content: unknown): string {
 }
 
 function isSyntheticContextText(text: string): boolean {
-  const t = text.trim();
-  return t.startsWith('<environment_context>') || t.startsWith('<permissions instructions>');
+  const t = text.trim().toLowerCase();
+  return (
+    t.startsWith('<environment_context>') ||
+    t.startsWith('<permissions instructions>') ||
+    t.startsWith('<git-context>')
+  );
 }
 
 function extractFirstHumanText(content: unknown): string {

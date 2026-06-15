@@ -1,11 +1,12 @@
 import { open, readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
 import { basename, join } from 'node:path';
+import type { SessionSource } from '../lib/types';
 
 export const CLAUDE_PROJECTS_ROOT = join(homedir(), '.claude', 'projects');
 export const CODEX_SESSIONS_ROOT = join(homedir(), '.codex', 'sessions');
+export const KIMI_SESSIONS_ROOT = join(homedir(), '.kimi-code', 'sessions');
 export const PROJECTS_ROOT = CLAUDE_PROJECTS_ROOT;
-export type SessionSource = 'claude' | 'codex';
 const SCAN_CACHE_TTL_MS = 1000;
 let scanCache: { at: number; projects: ProjectDir[] } | null = null;
 
@@ -26,12 +27,18 @@ export type SessionFile = {
   absPath: string;
   size: number;
   mtimeMs: number;
+  /** Project working directory, when known. */
+  cwd?: string;
   /** If this file lives under a `<parent-session-uuid>/subagents/` dir, the parent uuid. */
   parentSessionId?: string;
 };
 
 export async function projectsRootExists(): Promise<boolean> {
-  return (await dirExists(CLAUDE_PROJECTS_ROOT)) || (await dirExists(CODEX_SESSIONS_ROOT));
+  return (
+    (await dirExists(CLAUDE_PROJECTS_ROOT)) ||
+    (await dirExists(CODEX_SESSIONS_ROOT)) ||
+    (await dirExists(KIMI_SESSIONS_ROOT))
+  );
 }
 
 async function dirExists(path: string): Promise<boolean> {
@@ -47,8 +54,12 @@ export async function listProjects(): Promise<ProjectDir[]> {
   if (scanCache && Date.now() - scanCache.at < SCAN_CACHE_TTL_MS) {
     return cloneProjects(scanCache.projects);
   }
-  const [claude, codex] = await Promise.all([listClaudeProjects(), listCodexProjects()]);
-  const projects = [...claude, ...codex];
+  const [claude, codex, kimi] = await Promise.all([
+    listClaudeProjects(),
+    listCodexProjects(),
+    listKimiProjects(),
+  ]);
+  const projects = [...claude, ...codex, ...kimi];
   scanCache = { at: Date.now(), projects };
   return cloneProjects(projects);
 }
@@ -150,6 +161,7 @@ async function listCodexProjects(): Promise<ProjectDir[]> {
         absPath,
         size: s.size,
         mtimeMs: s.mtimeMs,
+        cwd,
       });
     }),
   );
@@ -215,6 +227,104 @@ async function readFileHead(absPath: string, byteLimit: number): Promise<string>
 
 function encodeProjectId(cwd: string): string {
   return cwd.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'unknown';
+}
+
+async function listKimiProjects(): Promise<ProjectDir[]> {
+  if (!(await dirExists(KIMI_SESSIONS_ROOT))) return [];
+  const indexPath = join(homedir(), '.kimi-code', 'session_index.jsonl');
+  const indexText = await readFile(indexPath, 'utf8').catch(() => '');
+  const byProject = new Map<string, ProjectDir>();
+
+  for (const line of indexText.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const idx = JSON.parse(line) as {
+        sessionId?: string;
+        sessionDir?: string;
+        workDir?: string;
+      };
+      const sessionId = idx.sessionId;
+      const sessionDir = idx.sessionDir;
+      const workDir = idx.workDir;
+      if (!sessionId || !sessionDir || !workDir) continue;
+
+      const state = await readKimiState(join(sessionDir, 'state.json'));
+      const projectId = `kimi:${encodeProjectId(workDir)}`;
+      let project = byProject.get(projectId);
+      if (!project) {
+        project = {
+          id: projectId,
+          source: 'kimi',
+          cwd: workDir,
+          absPath: KIMI_SESSIONS_ROOT,
+          sessions: [],
+        };
+        byProject.set(projectId, project);
+      }
+
+      // Main agent is always present.
+      const mainPath = join(sessionDir, 'agents', 'main', 'wire.jsonl');
+      const mainStat = await stat(mainPath).catch(() => null);
+      if (mainStat) {
+        const mainId = `kimi:${sessionId}`;
+        project.sessions.push({
+          id: mainId,
+          source: 'kimi',
+          projectId,
+          absPath: mainPath,
+          size: mainStat.size,
+          mtimeMs: mainStat.mtimeMs,
+          cwd: workDir,
+        });
+
+        // Sub-agents, if any.
+        for (const agentId of Object.keys(state.agents)) {
+          if (agentId === 'main') continue;
+          const agent = state.agents[agentId];
+          if (agent.type !== 'sub') continue;
+          const agentPath = join(sessionDir, 'agents', agentId, 'wire.jsonl');
+          const agentStat = await stat(agentPath).catch(() => null);
+          if (!agentStat) continue;
+          project.sessions.push({
+            id: `kimi:${sessionId}@${agentId}`,
+            source: 'kimi',
+            projectId,
+            absPath: agentPath,
+            size: agentStat.size,
+            mtimeMs: agentStat.mtimeMs,
+            cwd: workDir,
+            parentSessionId: mainId,
+          });
+        }
+      }
+    } catch {
+      // ignore malformed index rows or unreadable session dirs
+    }
+  }
+
+  return [...byProject.values()];
+}
+
+type KimiState = {
+  title?: string;
+  agents: Record<
+    string,
+    {
+      type: 'main' | 'sub';
+      parentAgentId?: string | null;
+    }
+  >;
+};
+
+async function readKimiState(absPath: string): Promise<KimiState> {
+  try {
+    const text = await readFile(absPath, 'utf8');
+    const obj = JSON.parse(text) as KimiState;
+    if (!obj || typeof obj !== 'object' || !obj.agents) return { agents: {} };
+    return obj;
+  } catch {
+    return { agents: {} };
+  }
 }
 
 export type SubagentMeta = {

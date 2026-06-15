@@ -38,9 +38,9 @@ services:
     run_at_load: true
     log: /Users/gxk/Library/Logs/cc-viz.log
     env:
-      HOME: /Users/gxk       # node:os.homedir() 才能找到 ~/.claude/projects 与 ~/.codex/sessions
+      HOME: /Users/gxk       # node:os.homedir() 才能找到 ~/.claude/projects、~/.codex/sessions 与 ~/.kimi-code/sessions
       CC_VIZ_TOKEN: <粘贴上一步的 token>
-      NO_CSS_WATCH: "1"      # daemon 里不要跑 tailwind watch 子进程
+      NO_CSS_WATCH: "1"      # daemon 里不要跑 tailwind 子进程；依赖 release 预构建的 CSS
 ```
 
 > `user:` 字段是 svcctl 必须 ≥ 支持 UserName 的版本（plist 会写 `<key>UserName</key>`）。不填则以 root 运行，会让 `homedir()` 返回 `/var/root`，扫不到 session 数据。

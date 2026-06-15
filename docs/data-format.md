@@ -21,6 +21,19 @@ Codex:
 - Codex session 按日期分层存放。扫描时递归收集 `*.jsonl`，从 `session_meta.payload.id` 取 session UUID，从 `session_meta.payload.cwd` 或 `turn_context.payload.cwd` 取 cwd。
 - 为避免与 Claude session id 碰撞，Codex session id 在本工具内使用 `codex:<uuid>`，project id 使用 `codex:<encoded-cwd>`。
 
+Kimi:
+
+```
+~/.kimi-code/session_index.jsonl
+~/.kimi-code/sessions/<workdir-hash>/<session-uuid>/state.json
+~/.kimi-code/sessions/<workdir-hash>/<session-uuid>/agents/main/wire.jsonl
+~/.kimi-code/sessions/<workdir-hash>/<session-uuid>/agents/agent-*/wire.jsonl
+```
+
+- `session_index.jsonl` 每行记录 `{ sessionId, sessionDir, workDir }`，是发现 Kimi session 的入口。
+- `state.json` 保存标题与 `agents` 映射；`agents/main` 为主会话，`agents/agent-*` 为 sub-agent。
+- 为避免碰撞，Kimi session id 在本工具内使用 `kimi:<sessionId>`，sub-agent 使用 `kimi:<sessionId>@agent-*`，project id 使用 `kimi:<encoded-cwd>`。
+
 ## Entry 类型（宽容设计）
 
 类型定义在 `src/lib/types.ts`。原则：**未知字段一律保留，必填项几乎全为可选**，避免格式微变就解析失败。
@@ -115,6 +128,20 @@ Codex JSONL 使用外层 `{ timestamp, type, payload }`，parser 会先归一化
 - `event_msg.token_count` → 不可见的 assistant usage entry，用于 token 图表；`priced: false`，避免把 Anthropic 默认价格套到 Codex / OpenAI 模型上。
 
 Codex 的 `event_msg.user_message` / `event_msg.agent_message` 与 `response_item.message` 重复，当前跳过，避免 Timeline 重复显示。
+
+### Kimi 归一化
+
+Kimi `wire.jsonl` 使用 `{ type, time, ... }` 事件流，parser 会先按 step 聚合再归一化到共享 `RawEntry`：
+
+- `turn.prompt` → `user`。
+- `context.append_message`（`role === 'assistant'`）→ `assistant` text；`role === 'user'` 跳过（与 `turn.prompt` 重复）。
+- `context.append_loop_event`：
+  - `step.begin` / `step.end` 界定一个思考/行动步骤。
+  - `content.part`（`part.type === 'text'` / `'think'`）→ 当前 step 的 `assistant` text / thinking。
+  - `tool.call` → 当前 step 的 `assistant` `tool_use`。
+  - `tool.result` → `user` `tool_result`。
+- `usage.record` → 按**累计值差分**得到当前 step 的 `TokenUsage`，标记 `priced: false`（Kimi 价格表未维护，避免误报成本）。
+- `permission.record_approval_result` → `system`。
 
 ## 共享类型契约
 

@@ -29,7 +29,7 @@ export function TokenPrompt({ onSuccess }: { onSuccess: () => void }) {
         onSubmit={submit}
         className="w-full max-w-sm p-6 border border-gray-200 dark:border-gray-800 rounded-md"
       >
-        <h1 className="text-base font-semibold mb-1">Claude / Codex Viz</h1>
+        <h1 className="text-base font-semibold mb-1">Claude / Codex / Kimi Viz</h1>
         <p className="text-xs text-gray-500 dark:text-gray-400 mb-4">
           Enter access token to continue.
         </p>

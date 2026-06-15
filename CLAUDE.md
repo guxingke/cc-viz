@@ -4,9 +4,9 @@
 
 ## 项目速览
 
-- **类型**：纯本地 Web 工具，可视化 Claude Code / Codex 的历史 session。
+- **类型**：纯本地 Web 工具，可视化 Claude Code / Codex / Kimi 的历史 session。
 - **入口**：`server.ts`（Bun.serve）+ `src/app.tsx`（React）。
-- **数据源**：只读 `~/.claude/projects/**/*.jsonl` 与 `~/.codex/sessions/**/*.jsonl`。
+- **数据源**：只读 `~/.claude/projects/**/*.jsonl`、`~/.codex/sessions/**/*.jsonl` 与 `~/.kimi-code/sessions/` 下的 `wire.jsonl`。
 - 技术栈、目录结构、模块职责见 `docs/`。需要业务/格式知识时直接读对应文档，**不要凭印象写**。
 
 ## 必读文档（按需）
@@ -21,7 +21,7 @@
 
 ## 硬约束（不可违反）
 
-1. **不写 `~/.claude/` 或 `~/.codex/` 下任何文件**。这些目录全程只读，包括子目录、子文件。
+1. **不写 `~/.claude/`、`~/.codex/` 或 `~/.kimi-code/` 下任何文件**。这些目录全程只读，包括子目录、子文件。
 2. **不要部署、不要 `git push`、不要改 git 远程**。
 3. **不引入新的构建工具**（Vite / Webpack / Next / Nuxt / tsx / ts-node 等）。前端由 Bun 直接打包，样式由独立 `@tailwindcss/cli` 编译，这是有意为之。
 4. **依赖最小**：`package.json` 没列的库，没有不可替代的理由不要加。改动需求若能用现有依赖完成，优先复用。
@@ -68,7 +68,7 @@
 完成一项改动前自查：
 
 - [ ] `bun run typecheck` 通过
-- [ ] 没有写入 `~/.claude/` / `~/.codex/`
+- [ ] 没有写入 `~/.claude/` / `~/.codex/` / `~/.kimi-code/`
 - [ ] 没有引入新依赖（如有，已和用户确认）
 - [ ] 涉及的 `docs/` 章节已同步
 - [ ] API 改动经过 `isAuthorized` 校验，且未引入新写操作
