@@ -1,8 +1,9 @@
-# Claude Code Session Visualizer
+# Claude / Codex Session Visualizer
 
-一个**纯本地**的 Web 工具，读取本机 `~/.claude/projects/` 下 Claude Code 留下的 JSONL session 文件，在浏览器里查看对话时间线、工具调用、token 成本与 sub-agent 决策树。
+一个**纯本地**的 Web 工具，读取本机 Claude Code 与 Codex 留下的 JSONL session 文件，在浏览器里查看对话时间线、工具调用、token 与决策树。
 
-- 不修改任何 Claude Code 数据，只读
+- 数据源：Claude Code `~/.claude/projects/`，Codex `~/.codex/sessions/`
+- 不修改任何 Claude Code / Codex 数据，只读
 - 不联网、不上传，单进程跑在 `localhost`
 - 默认开启 token 鉴权（loopback 上也不裸奔）
 

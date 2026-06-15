@@ -71,7 +71,7 @@ const lanBaseUrl = lanIp ? `http://${lanIp}:${server.port}` : null;
 const baseUrl = lanBaseUrl ?? localBaseUrl;
 const openUrl = authDisabled() ? baseUrl : `${baseUrl}/?token=${AUTH_TOKEN}`;
 
-console.log(`→ Claude Viz running at ${localBaseUrl}`);
+console.log(`→ Claude / Codex Viz running at ${localBaseUrl}`);
 if (lanBaseUrl) {
   console.log(`  LAN:  ${lanBaseUrl}   (use this when sharing)`);
 }

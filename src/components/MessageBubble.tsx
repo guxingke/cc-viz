@@ -115,7 +115,7 @@ export function MessageBubble({
     <div className="my-3">
       <div className="flex items-baseline gap-2 mb-1 text-xs text-gray-500 dark:text-gray-400">
         <span className="font-semibold uppercase tracking-wide">
-          {isUser ? 'You' : 'Claude'}
+          {isUser ? 'You' : 'Assistant'}
         </span>
         {isAssistant && entry.message?.model && (
           <span className="font-mono text-[10px] text-gray-400">{entry.message.model}</span>

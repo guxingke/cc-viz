@@ -2,6 +2,8 @@
 
 ## 文件位置
 
+Claude Code:
+
 ```
 ~/.claude/projects/<encoded-cwd>/<session-uuid>.jsonl
 ~/.claude/projects/<encoded-cwd>/<parent-session-uuid>/subagents/agent-XXX.jsonl
@@ -9,6 +11,15 @@
 
 - `<encoded-cwd>` 是 Claude Code 内部把 `/` 替换为 `-` 的项目目录名。**不依赖该编码反解 cwd**，而是从 JSONL 内容的 `cwd` 字段读取；无字段时再退化为字符串替换（见 `src/server/routes.ts#decodeProjectId`）。
 - **Sub-agent 文件**：扫描时遇到子目录会进入 `<dir>/subagents/`，把其中的 `*.jsonl` 作为独立 session 收录，并在 `SessionFile.parentSessionId` 上记录父 session UUID。每个 `agent-XXX.jsonl` 旁边可能有 `agent-XXX.meta.json`（含 `{ agentType, description }`），用于把父 session 中 `Task`/`Agent` tool_use（含 `subagent_type` + `description`）关联到具体子代理文件——见后端 `listSubagentMetas` / `SessionDetail.subagentLinks`。
+
+Codex:
+
+```
+~/.codex/sessions/YYYY/MM/DD/rollout-<timestamp>-<session-uuid>.jsonl
+```
+
+- Codex session 按日期分层存放。扫描时递归收集 `*.jsonl`，从 `session_meta.payload.id` 取 session UUID，从 `session_meta.payload.cwd` 或 `turn_context.payload.cwd` 取 cwd。
+- 为避免与 Claude session id 碰撞，Codex session id 在本工具内使用 `codex:<uuid>`，project id 使用 `codex:<encoded-cwd>`。
 
 ## Entry 类型（宽容设计）
 
@@ -18,6 +29,7 @@
 export type EntryType =
   | 'user' | 'assistant'
   | 'system' | 'summary'
+  | 'session_meta' | 'turn_context'
   | 'permission-mode' | 'file-history-snapshot'
   | 'attachment' | 'last-prompt'
   | (string & {});                  // 未知类型保留为 string
@@ -91,13 +103,26 @@ Claude Code 把**一次 assistant API 响应里的多个 content block**（think
 - **Tree**：从所有带 `uuid` 的 entry 构建 `parentUuid → children` 树；根为第一个父不在集合内的节点；空 session 返回 `null`。
 - **Tool call 配对**：`pairToolCalls(entries)` 把 assistant 中的 `tool_use` 与后续 user 中的 `tool_result` 按 `id`/`tool_use_id` 配对，附带 `is_error` 与外层 `toolUseResult`。前端在 `src/lib/toolCalls.ts` 有同名实现（视图需要时复用）。
 
+### Codex 归一化
+
+Codex JSONL 使用外层 `{ timestamp, type, payload }`，parser 会先归一化到共享 `RawEntry`：
+
+- `response_item.payload.type === "message"` → `user` / `assistant`，`input_text` / `output_text` 转为 `text` block。
+- `function_call` / `custom_tool_call` / `local_shell_call` → assistant `tool_use`。
+- `function_call_output` / `custom_tool_call_output` / `local_shell_call_output` → user `tool_result`。
+- `reasoning` → assistant `thinking`。
+- `event_msg.task_complete` → `system` 的 `turn_duration`。
+- `event_msg.token_count` → 不可见的 assistant usage entry，用于 token 图表；`priced: false`，避免把 Anthropic 默认价格套到 Codex / OpenAI 模型上。
+
+Codex 的 `event_msg.user_message` / `event_msg.agent_message` 与 `response_item.message` 重复，当前跳过，避免 Timeline 重复显示。
+
 ## 共享类型契约
 
 服务端 / 客户端复用（`src/lib/types.ts`）：
 
 ```ts
-ProjectSummary { id, cwd, sessionCount, totalTokens, totalCostUsd, lastActiveAt }
-SessionSummary { id, projectId, cwd, title, startedAt, endedAt,
+ProjectSummary { id, source, cwd, sessionCount, totalTokens, totalCostUsd, lastActiveAt }
+SessionSummary { id, projectId, source, cwd, title, startedAt, endedAt,
                  messageCount, toolCallCount, totalTokens, totalCostUsd,
                  model, hasSubagents }
 SessionDetail = SessionSummary & { entries: ParsedEntry[], tree: TreeNode | null }

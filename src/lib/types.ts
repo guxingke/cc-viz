@@ -7,6 +7,8 @@ export type EntryType =
   | 'assistant'
   | 'system'
   | 'summary'
+  | 'session_meta'
+  | 'turn_context'
   | 'permission-mode'
   | 'file-history-snapshot'
   | 'attachment'
@@ -88,6 +90,7 @@ export type TreeNode = {
 
 export type ProjectSummary = {
   id: string;
+  source: 'claude' | 'codex';
   cwd: string;
   sessionCount: number;
   totalTokens: number;
@@ -98,6 +101,7 @@ export type ProjectSummary = {
 export type SessionSummary = {
   id: string;
   projectId: string;
+  source: 'claude' | 'codex';
   cwd: string;
   title: string;
   startedAt: string;

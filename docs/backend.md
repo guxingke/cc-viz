@@ -51,8 +51,10 @@
 
 ## 扫描（`src/server/scanner.ts`）
 
-- `PROJECTS_ROOT = ~/.claude/projects`；`projectsRootExists()` 用于空状态判断。
-- `listProjects()` 列一层目录；每个项目目录里再列 `*.jsonl` 与 `<uuid>/subagents/*.jsonl`，并记录 `mtimeMs` / `size`。
+- `CLAUDE_PROJECTS_ROOT = ~/.claude/projects`；`CODEX_SESSIONS_ROOT = ~/.codex/sessions`；`projectsRootExists()` 任一存在即返回 true。
+- `listProjects()` 合并 Claude 与 Codex：
+  - Claude：列一层项目目录；每个项目目录里再列 `*.jsonl` 与 `<uuid>/subagents/*.jsonl`，并记录 `mtimeMs` / `size`。
+  - Codex：递归收集 `~/.codex/sessions/**/*.jsonl`，从 `session_meta` / `turn_context` 读取 cwd 并按 cwd 聚合；session id 在工具内加 `codex:` 前缀。
 - `findSessionById(id)` 线性扫描所有项目找匹配 session 文件。
 - `listSubagentMetas(parentId)` 读取 `<parent>/subagents/agent-XXX.meta.json` 旁挂文件，返回 `[{ sessionId, agentType, description, mtimeMs }]`（按 mtime 升序）。`getSessionDetail` 用它配合父 session 中的 `Task`/`Agent` tool_use 的 `(subagent_type, description)` 字段建立 `subagentLinks: { toolUseId → subagentSessionId }`，附在 `SessionDetail` 上返回；share 端点**不**附带（子代理不在分享范围内）。
 
@@ -86,7 +88,7 @@
 ## 搜索（`src/server/search.ts`）
 
 - 输入小写 trim 后空字串直接返回 `[]`。
-- 遍历所有 session（复用 `getParsedSession`），对每个 user/assistant 的 `text` 与 `thinking` 块做 `indexOf` 计数，记录第一处命中的上下文 `…前40字 + 命中 + 后80字…`。
+- 遍历所有 Claude / Codex session（复用 `getParsedSession`），对每个 user/assistant 的 `text` 与 `thinking` 块做 `indexOf` 计数，记录第一处命中的上下文 `…前40字 + 命中 + 后80字…`。
 - 排序按 `matchCount` 降序，最多返回 100 条。
 - 返回类型 `SearchHit { sessionId, projectId, title, cwd, snippet, matchCount }`。
 
@@ -107,7 +109,7 @@ PRICING = {
 
 `resolvePricing(model)` 先精确匹配，再剥掉末尾 `[xxx]`（如 `[1m]`）与 `-YYYYMMDD` 日期后缀再匹配；都不中走 `default` 并标记 `known: false`。
 
-`calcCost(model, usage)` 单位 USD per 1M token，分项相乘后求和：
+`calcCost(model, usage)` 单位 USD per 1M token，分项相乘后求和。若 usage 带 `priced: false`（当前 Codex token_count 归一化会设置），直接返回 0，避免对未维护价格的模型误报成本。
 - input × `input`
 - output × `output`
 - cache_read × `cache_read`

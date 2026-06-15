@@ -44,6 +44,7 @@ export function TokenChart({ detail }: { detail: SessionDetail }) {
     let cumCost = 0;
     let i = 0;
     let knownAll = true;
+    let hasUnpriced = false;
     for (const e of detail.entries) {
       if (e.type !== 'assistant') continue;
       if (!e.isFirstOfMessage) continue;
@@ -55,7 +56,8 @@ export function TokenChart({ detail }: { detail: SessionDetail }) {
       const cache_read = Number(u.cache_read_input_tokens) || 0;
       const cost = calcCost(e.message?.model, u);
       const { known } = resolvePricing(e.message?.model);
-      if (!known) knownAll = false;
+      if (u.priced === false) hasUnpriced = true;
+      else if (!known) knownAll = false;
       cumInput += input;
       cumOutput += output;
       cumCacheRead += cache_read;
@@ -92,6 +94,7 @@ export function TokenChart({ detail }: { detail: SessionDetail }) {
         cost: detail.totalCostUsd,
         cacheHitRate,
         knownAll,
+        hasUnpriced,
       },
     };
   }, [detail]);
@@ -120,6 +123,12 @@ export function TokenChart({ detail }: { detail: SessionDetail }) {
       {!totals.knownAll && (
         <div className="text-xs text-amber-700 dark:text-amber-300 bg-amber-50 dark:bg-amber-950/40 border border-amber-200 dark:border-amber-900 rounded px-3 py-2">
           Some assistant messages used an unrecognised model — cost uses default pricing.
+        </div>
+      )}
+
+      {totals.hasUnpriced && (
+        <div className="text-xs text-gray-600 dark:text-gray-300 bg-gray-50 dark:bg-gray-900 border border-gray-200 dark:border-gray-800 rounded px-3 py-2">
+          Some token usage is unpriced, so total cost excludes it.
         </div>
       )}
 

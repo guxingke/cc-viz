@@ -38,7 +38,7 @@ services:
     run_at_load: true
     log: /Users/gxk/Library/Logs/cc-viz.log
     env:
-      HOME: /Users/gxk       # node:os.homedir() 才能找到 ~/.claude/projects
+      HOME: /Users/gxk       # node:os.homedir() 才能找到 ~/.claude/projects 与 ~/.codex/sessions
       CC_VIZ_TOKEN: <粘贴上一步的 token>
       NO_CSS_WATCH: "1"      # daemon 里不要跑 tailwind watch 子进程
 ```

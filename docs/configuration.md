@@ -41,7 +41,7 @@ export CC_VIZ_TOKEN=<your-token>
 
 - JSONL 单行解析失败：累计到 `parseErrors`，不阻塞其余行（目前未暴露到 UI，仅 console 友好）。
 - 文件读取失败：API 返回 404；前端 `useFetch` 把错误传给 `ErrorBox`。
-- `~/.claude/projects/` 不存在：`listProjects()` 返回空数组；UI 表现为 `EmptyState`。
+- `~/.claude/projects/` 与 `~/.codex/sessions/` 都不存在：`listProjects()` 返回空数组；UI 表现为 `EmptyState`。
 - API 抛错：`handleApi` 兜底 500 + `console.error`。
 - 401：API 统一返回；`api.ts` 调全局 unauthorized handler，把 UI 切到登录态。
 
@@ -49,7 +49,7 @@ export CC_VIZ_TOKEN=<your-token>
 
 唯一的可写状态库是 `$HOME/.config/cc-viz/db.sqlite`（首次启动自动 `mkdir -p`，WAL 模式）。当前只放 `shares` 表（分享链接），未来如有其他元数据按表分增即可。
 
-`~/.claude/` 全程只读，未被该数据库引用，也不会被写入。
+`~/.claude/` 与 `~/.codex/` 全程只读，未被该数据库引用，也不会被写入。
 
 ## 缓存语义
 

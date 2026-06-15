@@ -81,6 +81,7 @@ export function resolvePricing(model: string | null | undefined) {
 
 export function calcCost(model: string | null | undefined, usage: TokenUsage | undefined): number {
   if (!usage) return 0;
+  if (usage.priced === false) return 0;
   const { rates } = resolvePricing(model);
   const inp = Number(usage.input_tokens) || 0;
   const out = Number(usage.output_tokens) || 0;

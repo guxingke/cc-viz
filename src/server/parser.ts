@@ -12,6 +12,8 @@ const CONVO_TYPES = new Set(['user', 'assistant']);
 const META_TYPES = new Set([
   'system',
   'summary',
+  'session_meta',
+  'turn_context',
   'ai-title',
   'agent-name',
   'permission-mode',
@@ -46,6 +48,31 @@ export function parseSessionText(text: string, sessionId: string, projectId: str
     }
   }
 
+  const source = sessionId.startsWith('codex:') ? 'codex' : 'claude';
+  if (source === 'codex') {
+    const result = parseNormalizedEntries(
+      normalizeCodexEntries(rawEntries),
+      sessionId,
+      projectId,
+      source,
+      skippedLines,
+      parseErrors,
+    );
+    return result;
+  }
+
+  return parseNormalizedEntries(rawEntries, sessionId, projectId, source, skippedLines, parseErrors);
+}
+
+function parseNormalizedEntries(
+  rawEntries: RawEntry[],
+  sessionId: string,
+  projectId: string,
+  source: 'claude' | 'codex',
+  skippedLines: number,
+  parseErrors: number,
+): ParseResult {
+
   // Title resolution: prefer ai-title / summary; fallback to first user text.
   let title = '';
   for (const e of rawEntries) {
@@ -59,10 +86,11 @@ export function parseSessionText(text: string, sessionId: string, projectId: str
     }
   }
   if (!title) {
-    const firstUser = rawEntries.find(
-      (e) => e.type === 'user' && e.message && typeof e.message === 'object',
-    );
-    title = extractFirstText(firstUser?.message?.content) || 'Untitled session';
+    const firstUser = rawEntries.find((e) => {
+      if (e.type !== 'user' || !e.message || typeof e.message !== 'object') return false;
+      return !!extractFirstHumanText(e.message.content);
+    });
+    title = extractFirstHumanText(firstUser?.message?.content) || 'Untitled session';
     if (title.length > 80) title = title.slice(0, 80) + '…';
   }
 
@@ -142,12 +170,15 @@ export function parseSessionText(text: string, sessionId: string, projectId: str
     }
   }
 
-  const messageCount = parsedEntries.filter((e) => CONVO_TYPES.has(e.type)).length;
+  const messageCount = parsedEntries.filter(
+    (e) => CONVO_TYPES.has(e.type) && hasConversationContent(e),
+  ).length;
   const model = pickTopModel(modelCounts);
 
   const detail: SessionDetail = {
     id: sessionId,
     projectId,
+    source,
     cwd,
     title,
     startedAt,
@@ -165,6 +196,300 @@ export function parseSessionText(text: string, sessionId: string, projectId: str
   return { detail, skippedLines, parseErrors };
 }
 
+function normalizeCodexEntries(entries: RawEntry[]): RawEntry[] {
+  const out: RawEntry[] = [];
+  let sessionId = '';
+  let cwd = '';
+  let model = '';
+  let lastUuid: string | null = null;
+  let seq = 0;
+  const seenUsageKeys = new Set<string>();
+
+  const push = (entry: RawEntry) => {
+    const uuid = entry.uuid ?? `codex-${++seq}`;
+    const parentUuid =
+      typeof entry.parentUuid === 'string' || entry.parentUuid === null
+        ? entry.parentUuid
+        : lastUuid;
+    out.push({
+      ...entry,
+      uuid,
+      parentUuid,
+      sessionId,
+      cwd: typeof entry.cwd === 'string' && entry.cwd ? entry.cwd : cwd,
+    });
+    lastUuid = uuid;
+  };
+
+  for (const e of entries) {
+    const payload = objectPayload(e);
+    if (e.type === 'session_meta') {
+      sessionId = stringField(payload, 'id') || sessionId;
+      cwd = stringField(payload, 'cwd') || cwd;
+      push({
+        ...e,
+        type: 'session_meta',
+        timestamp: e.timestamp || stringField(payload, 'timestamp'),
+        cwd,
+        parentUuid: null,
+        message: {
+          role: 'assistant',
+          content: [{ type: 'text', text: 'Codex session started' }],
+        },
+      });
+      continue;
+    }
+
+    if (e.type === 'turn_context') {
+      cwd = stringField(payload, 'cwd') || cwd;
+      model = stringField(payload, 'model') || model;
+      push({
+        ...e,
+        type: 'turn_context',
+        timestamp: e.timestamp,
+        cwd,
+        message: {
+          role: 'assistant',
+          model,
+          content: [],
+        },
+      });
+      continue;
+    }
+
+    if (e.type === 'response_item') {
+      const kind = stringField(payload, 'type');
+      if (kind === 'message') {
+        const role = stringField(payload, 'role');
+        const content = normalizeCodexContent(payload.content);
+        if (role === 'user' || role === 'assistant') {
+          push({
+            ...e,
+            type: role,
+            timestamp: e.timestamp,
+            message: {
+              id: stringField(payload, 'id') || `${e.timestamp ?? ''}:${seq + 1}`,
+              role,
+              model: role === 'assistant' ? model || undefined : undefined,
+              content,
+            },
+          });
+        }
+      } else if (
+        kind === 'function_call' ||
+        kind === 'custom_tool_call' ||
+        kind === 'local_shell_call'
+      ) {
+        const callId = stringField(payload, 'call_id') || stringField(payload, 'id');
+        const name = stringField(payload, 'name') || kind;
+        push({
+          ...e,
+          type: 'assistant',
+          timestamp: e.timestamp,
+          message: {
+            id: callId || `${e.timestamp ?? ''}:${seq + 1}`,
+            role: 'assistant',
+            model: model || undefined,
+            content: [
+              {
+                type: 'tool_use',
+                id: callId || `codex-call-${seq + 1}`,
+                name,
+                input: normalizeCodexToolInput(payload),
+              },
+            ],
+          },
+        });
+      } else if (
+        kind === 'function_call_output' ||
+        kind === 'custom_tool_call_output' ||
+        kind === 'local_shell_call_output'
+      ) {
+        const callId = stringField(payload, 'call_id') || stringField(payload, 'id');
+        if (callId) {
+          push({
+            ...e,
+            type: 'user',
+            timestamp: e.timestamp,
+            message: {
+              role: 'user',
+              content: [
+                {
+                  type: 'tool_result',
+                  tool_use_id: callId,
+                  content: normalizeCodexToolOutput(payload),
+                  is_error: isCodexToolError(payload),
+                },
+              ],
+            },
+          });
+        }
+      } else if (kind === 'reasoning') {
+        const text = normalizeCodexReasoning(payload);
+        if (text) {
+          push({
+            ...e,
+            type: 'assistant',
+            timestamp: e.timestamp,
+            message: {
+              id: stringField(payload, 'id') || `${e.timestamp ?? ''}:${seq + 1}`,
+              role: 'assistant',
+              model: model || undefined,
+              content: [{ type: 'thinking', thinking: text }],
+            },
+          });
+        }
+      }
+      continue;
+    }
+
+    if (e.type === 'event_msg') {
+      const kind = stringField(payload, 'type');
+      if (kind === 'task_started') {
+        push({
+          ...e,
+          type: 'system',
+          timestamp: e.timestamp,
+          subtype: 'task_started',
+        });
+      } else if (kind === 'task_complete') {
+        push({
+          ...e,
+          type: 'system',
+          timestamp: e.timestamp,
+          subtype: 'turn_duration',
+          durationMs: Number(payload.duration_ms) || 0,
+        });
+      } else if (kind === 'token_count') {
+        const usageKey = codexUsageKey(payload);
+        if (seenUsageKeys.has(usageKey)) continue;
+        seenUsageKeys.add(usageKey);
+        const usage = normalizeCodexUsage(payload);
+        push({
+          ...e,
+          type: 'assistant',
+          timestamp: e.timestamp,
+          message: {
+            id: `usage:${e.timestamp ?? seq + 1}`,
+            role: 'assistant',
+            model: model || undefined,
+            content: [],
+            usage,
+          },
+        });
+      }
+    }
+  }
+
+  return out;
+}
+
+function objectPayload(e: RawEntry): Record<string, unknown> {
+  const payload = (e as { payload?: unknown }).payload;
+  return payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : {};
+}
+
+function stringField(obj: Record<string, unknown>, key: string): string {
+  const v = obj[key];
+  return typeof v === 'string' ? v : '';
+}
+
+function normalizeCodexContent(content: unknown): ContentBlock[] {
+  if (typeof content === 'string') return [{ type: 'text', text: content }];
+  if (!Array.isArray(content)) return [];
+  const out: ContentBlock[] = [];
+  for (const block of content) {
+    if (!block || typeof block !== 'object') continue;
+    const b = block as Record<string, unknown>;
+    const type = stringField(b, 'type');
+    const text = stringField(b, 'text');
+    if ((type === 'input_text' || type === 'output_text' || type === 'text') && text) {
+      out.push({ type: 'text', text });
+    } else if (type === 'reasoning_text' && text) {
+      out.push({ type: 'thinking', thinking: text });
+    }
+  }
+  return out;
+}
+
+function normalizeCodexToolInput(payload: Record<string, unknown>): Record<string, unknown> {
+  const raw = payload.arguments ?? payload.input ?? {};
+  if (typeof raw === 'string') {
+    try {
+      const parsed = JSON.parse(raw);
+      return parsed && typeof parsed === 'object' ? (parsed as Record<string, unknown>) : { value: raw };
+    } catch {
+      return { value: raw };
+    }
+  }
+  return raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+}
+
+function normalizeCodexToolOutput(payload: Record<string, unknown>): unknown {
+  if ('output' in payload) return payload.output;
+  if ('result' in payload) return payload.result;
+  if ('error' in payload) return payload.error;
+  return '';
+}
+
+function isCodexToolError(payload: Record<string, unknown>): boolean {
+  if (payload.success === false || payload.is_error === true) return true;
+  const status = stringField(payload, 'status').toLowerCase();
+  if (status === 'failed' || status === 'error') return true;
+  const output = String(payload.output ?? payload.result ?? payload.error ?? '');
+  const exitCode = output.match(/Exit code:\s*(-?\d+)/i);
+  return !!exitCode && Number(exitCode[1]) !== 0;
+}
+
+function normalizeCodexReasoning(payload: Record<string, unknown>): string {
+  const summary = payload.summary;
+  if (Array.isArray(summary)) {
+    return summary
+      .map((item) => {
+        if (typeof item === 'string') return item;
+        if (item && typeof item === 'object') {
+          const obj = item as Record<string, unknown>;
+          return stringField(obj, 'text') || stringField(obj, 'summary');
+        }
+        return '';
+      })
+      .filter(Boolean)
+      .join('\n');
+  }
+  return stringField(payload, 'text') || stringField(payload, 'summary');
+}
+
+function normalizeCodexUsage(payload: Record<string, unknown>): TokenUsage {
+  const info = payload.info && typeof payload.info === 'object'
+    ? (payload.info as Record<string, unknown>)
+    : {};
+  const last = info.last_token_usage && typeof info.last_token_usage === 'object'
+    ? (info.last_token_usage as Record<string, unknown>)
+    : {};
+  const input = Number(last.input_tokens) || 0;
+  const cached = Number(last.cached_input_tokens) || 0;
+  return {
+    input_tokens: Math.max(0, input - cached),
+    output_tokens: Number(last.output_tokens) || 0,
+    cache_read_input_tokens: cached,
+    cache_creation_input_tokens: 0,
+    priced: false,
+    reasoning_output_tokens: Number(last.reasoning_output_tokens) || 0,
+    total_tokens: Number(last.total_tokens) || 0,
+  };
+}
+
+function codexUsageKey(payload: Record<string, unknown>): string {
+  const info = payload.info && typeof payload.info === 'object'
+    ? (payload.info as Record<string, unknown>)
+    : {};
+  return JSON.stringify({
+    total: info.total_token_usage ?? null,
+    last: info.last_token_usage ?? null,
+    context: info.model_context_window ?? null,
+  });
+}
+
 function extractFirstText(content: unknown): string {
   if (typeof content === 'string') return content;
   if (!Array.isArray(content)) return '';
@@ -172,6 +497,31 @@ function extractFirstText(content: unknown): string {
     if (block.type === 'text' && typeof block.text === 'string') return block.text;
   }
   return '';
+}
+
+function isSyntheticContextText(text: string): boolean {
+  const t = text.trim();
+  return t.startsWith('<environment_context>') || t.startsWith('<permissions instructions>');
+}
+
+function extractFirstHumanText(content: unknown): string {
+  if (typeof content === 'string') {
+    return isSyntheticContextText(content) ? '' : content;
+  }
+  if (!Array.isArray(content)) return '';
+  for (const block of content as ContentBlock[]) {
+    if (block.type !== 'text' || typeof block.text !== 'string') continue;
+    if (isSyntheticContextText(block.text)) continue;
+    return block.text;
+  }
+  return '';
+}
+
+function hasConversationContent(e: ParsedEntry): boolean {
+  const content = e.message?.content;
+  if (typeof content === 'string') return content.trim().length > 0;
+  if (!Array.isArray(content)) return false;
+  return content.length > 0;
 }
 
 function addUsage(into: TokenUsage, src: TokenUsage) {

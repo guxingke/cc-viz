@@ -1,12 +1,19 @@
-import { readdir, readFile, stat } from 'node:fs/promises';
+import { open, readdir, readFile, stat } from 'node:fs/promises';
 import { homedir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 
-export const PROJECTS_ROOT = join(homedir(), '.claude', 'projects');
+export const CLAUDE_PROJECTS_ROOT = join(homedir(), '.claude', 'projects');
+export const CODEX_SESSIONS_ROOT = join(homedir(), '.codex', 'sessions');
+export const PROJECTS_ROOT = CLAUDE_PROJECTS_ROOT;
+export type SessionSource = 'claude' | 'codex';
+const SCAN_CACHE_TTL_MS = 1000;
+let scanCache: { at: number; projects: ProjectDir[] } | null = null;
 
 export type ProjectDir = {
   /** encoded-cwd folder name */
   id: string;
+  source: SessionSource;
+  cwd?: string;
   absPath: string;
   sessions: SessionFile[];
 };
@@ -14,6 +21,7 @@ export type ProjectDir = {
 export type SessionFile = {
   /** uuid (filename without extension) */
   id: string;
+  source: SessionSource;
   projectId: string;
   absPath: string;
   size: number;
@@ -23,8 +31,12 @@ export type SessionFile = {
 };
 
 export async function projectsRootExists(): Promise<boolean> {
+  return (await dirExists(CLAUDE_PROJECTS_ROOT)) || (await dirExists(CODEX_SESSIONS_ROOT));
+}
+
+async function dirExists(path: string): Promise<boolean> {
   try {
-    const s = await stat(PROJECTS_ROOT);
+    const s = await stat(path);
     return s.isDirectory();
   } catch {
     return false;
@@ -32,14 +44,31 @@ export async function projectsRootExists(): Promise<boolean> {
 }
 
 export async function listProjects(): Promise<ProjectDir[]> {
-  if (!(await projectsRootExists())) return [];
-  const entries = await readdir(PROJECTS_ROOT, { withFileTypes: true });
+  if (scanCache && Date.now() - scanCache.at < SCAN_CACHE_TTL_MS) {
+    return cloneProjects(scanCache.projects);
+  }
+  const [claude, codex] = await Promise.all([listClaudeProjects(), listCodexProjects()]);
+  const projects = [...claude, ...codex];
+  scanCache = { at: Date.now(), projects };
+  return cloneProjects(projects);
+}
+
+function cloneProjects(projects: ProjectDir[]): ProjectDir[] {
+  return projects.map((p) => ({
+    ...p,
+    sessions: p.sessions.map((s) => ({ ...s })),
+  }));
+}
+
+async function listClaudeProjects(): Promise<ProjectDir[]> {
+  if (!(await dirExists(CLAUDE_PROJECTS_ROOT))) return [];
+  const entries = await readdir(CLAUDE_PROJECTS_ROOT, { withFileTypes: true });
   const out: ProjectDir[] = [];
   for (const ent of entries) {
     if (!ent.isDirectory()) continue;
-    const abs = join(PROJECTS_ROOT, ent.name);
+    const abs = join(CLAUDE_PROJECTS_ROOT, ent.name);
     const sessions = await listSessionsIn(abs, ent.name);
-    out.push({ id: ent.name, absPath: abs, sessions });
+    out.push({ id: ent.name, source: 'claude', absPath: abs, sessions });
   }
   return out;
 }
@@ -54,6 +83,7 @@ export async function listSessionsIn(absDir: string, projectId: string): Promise
         const s = await stat(abs);
         files.push({
           id: ent.name.replace(/\.jsonl$/, ''),
+          source: 'claude',
           projectId,
           absPath: abs,
           size: s.size,
@@ -74,6 +104,7 @@ export async function listSessionsIn(absDir: string, projectId: string): Promise
           const s = await stat(subAbs);
           files.push({
             id: name.replace(/\.jsonl$/, ''),
+            source: 'claude',
             projectId,
             absPath: subAbs,
             size: s.size,
@@ -87,6 +118,103 @@ export async function listSessionsIn(absDir: string, projectId: string): Promise
     }
   }
   return files;
+}
+
+async function listCodexProjects(): Promise<ProjectDir[]> {
+  if (!(await dirExists(CODEX_SESSIONS_ROOT))) return [];
+  const files = await listCodexSessionFiles(CODEX_SESSIONS_ROOT);
+  const byProject = new Map<string, ProjectDir>();
+  await Promise.all(
+    files.map(async (absPath) => {
+      const meta = await readCodexFileMeta(absPath);
+      const s = await stat(absPath).catch(() => null);
+      if (!s) return;
+      const rawId = meta.sessionId || basename(absPath).replace(/\.jsonl$/, '');
+      const cwd = meta.cwd || '(unknown cwd)';
+      const projectId = `codex:${encodeProjectId(cwd)}`;
+      let project = byProject.get(projectId);
+      if (!project) {
+        project = {
+          id: projectId,
+          source: 'codex',
+          cwd,
+          absPath: CODEX_SESSIONS_ROOT,
+          sessions: [],
+        };
+        byProject.set(projectId, project);
+      }
+      project.sessions.push({
+        id: `codex:${rawId}`,
+        source: 'codex',
+        projectId,
+        absPath,
+        size: s.size,
+        mtimeMs: s.mtimeMs,
+      });
+    }),
+  );
+  return [...byProject.values()];
+}
+
+async function listCodexSessionFiles(dir: string): Promise<string[]> {
+  const entries = await readdir(dir, { withFileTypes: true }).catch(() => []);
+  const out: string[] = [];
+  await Promise.all(
+    entries.map(async (ent) => {
+      const abs = join(dir, ent.name);
+      if (ent.isDirectory()) {
+        out.push(...(await listCodexSessionFiles(abs)));
+      } else if (ent.isFile() && ent.name.endsWith('.jsonl')) {
+        out.push(abs);
+      }
+    }),
+  );
+  return out;
+}
+
+async function readCodexFileMeta(
+  absPath: string,
+): Promise<{ sessionId: string; cwd: string }> {
+  const text = await readFileHead(absPath, 128 * 1024);
+  let sessionId = '';
+  let cwd = '';
+  for (const line of text.split('\n')) {
+    if (!line.trim()) continue;
+    try {
+      const obj = JSON.parse(line) as {
+        type?: unknown;
+        payload?: Record<string, unknown>;
+      };
+      const p = obj.payload;
+      if (!p || typeof p !== 'object') continue;
+      if (!sessionId && obj.type === 'session_meta' && typeof p.id === 'string') {
+        sessionId = p.id;
+      }
+      if (!cwd && (obj.type === 'session_meta' || obj.type === 'turn_context')) {
+        if (typeof p.cwd === 'string') cwd = p.cwd;
+      }
+      if (sessionId && cwd) break;
+    } catch {
+      // ignore malformed rows; parser handles them later
+    }
+  }
+  return { sessionId, cwd };
+}
+
+async function readFileHead(absPath: string, byteLimit: number): Promise<string> {
+  const fh = await open(absPath, 'r').catch(() => null);
+  if (!fh) return '';
+  try {
+    const buf = Buffer.alloc(byteLimit);
+    const { bytesRead } = await fh.read(buf, 0, byteLimit, 0);
+    return buf.subarray(0, bytesRead).toString('utf8');
+  } finally {
+    await fh.close().catch(() => undefined);
+  }
+}
+
+function encodeProjectId(cwd: string): string {
+  return cwd.replace(/[^A-Za-z0-9._-]+/g, '-').replace(/^-+|-+$/g, '') || 'unknown';
 }
 
 export type SubagentMeta = {

@@ -2,7 +2,7 @@
 
 ## 项目目标
 
-一个**纯本地**的 Web 工具，用于查看与回顾 Claude Code 的历史 session。读取本机 `~/.claude/projects/` 下的 JSONL 文件，解析后通过浏览器展示：
+一个**纯本地**的 Web 工具，用于查看与回顾 Claude Code / Codex 的历史 session。读取本机 `~/.claude/projects/` 与 `~/.codex/sessions/` 下的 JSONL 文件，解析后通过浏览器展示：
 
 - 项目维度的 session 聚合视图（数量、token、成本、最近活跃）
 - 单个 session 的 Timeline / Tool calls / Tokens / Agent tree 四个视图
@@ -12,7 +12,7 @@
 
 - 不监听进行中的 session（仅静态回放，按文件 mtime 失效后重读）
 - 不内置多用户体系，但**提供单 session 只读分享链接**（独立 token、可选 TTL、可撤销）
-- 不写入或修改任何 Claude Code 的原始数据（`~/.claude/` 全程只读）
+- 不写入或修改任何 Claude Code / Codex 的原始数据（`~/.claude/`、`~/.codex/` 全程只读）
 - 不引入额外 UI 框架（如 shadcn）和重型构建工具（Vite / Webpack / Next 等）
 
 > 分享功能引入了一处可写状态库：`$HOME/.config/cc-viz/db.sqlite`（可用 `CC_VIZ_DB` 覆盖）。除此之外没有其他持久化。
@@ -54,10 +54,10 @@ cc-viz/
 │   │   ├── auth.ts                 # token 生成、Cookie/Bearer 解析、定值比较
 │   │   ├── cache.ts                # 按 absPath + mtime 内存缓存
 │   │   ├── db.ts                   # bun:sqlite 打开 + 迁移（CC_VIZ_DB / 默认 $HOME/.config/cc-viz/db.sqlite）
-│   │   ├── parser.ts               # JSONL → SessionDetail + ToolCallPair 配对
+│   │   ├── parser.ts               # Claude/Codex JSONL → SessionDetail + ToolCallPair 配对
 │   │   ├── pricing.ts              # 转发至 lib/pricing
 │   │   ├── routes.ts               # /api/* 路由分发
-│   │   ├── scanner.ts              # 扫描 ~/.claude/projects/ 及 sub-agent 子目录
+│   │   ├── scanner.ts              # 扫描 ~/.claude/projects/ 与 ~/.codex/sessions/
 │   │   ├── search.ts               # 跨 session 文本搜索
 │   │   └── shares.ts               # 单 session 只读分享链接：CRUD + token 校验 + TTL
 │   ├── lib/
@@ -92,9 +92,10 @@ cc-viz/
 
 ```
 ~/.claude/projects/<encoded-cwd>/*.jsonl
+~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl
         │
         ▼
-  scanner.ts ── 列项目 / session 文件 + sub-agent 子目录
+  scanner.ts ── 列项目 / session 文件 + sub-agent 子目录（Claude）
         │
         ▼
   cache.ts ──── 按 mtime 命中，未命中则

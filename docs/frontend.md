@@ -4,7 +4,7 @@
 
 层级：`BrowserRouter` → 外层 `Routes`（分流分享态）→ 普通路径下再走 `AuthGate` → `Shell` → 内层 `Routes`。
 
-- **Shell**：固定头部（"Claude Viz" 标题 + `ThemeToggle`）+ 滚动主体。分享态下 `shareMode` prop 把 Logo 改成纯文本（不再链到 `/`），副标题改为 "Shared session (read-only)"。
+- **Shell**：固定头部（"Claude / Codex Viz" 标题 + `ThemeToggle`）+ 滚动主体。分享态下 `shareMode` prop 把 Logo 改成纯文本（不再链到 `/`），副标题改为 "Shared session (read-only)"。
 - **AuthGate**：
   - 状态：`checking | authed | unauthed`。
   - 首次挂载：若 URL 携带 `?token=…` 则先 `POST /api/_auth/login`（成功后从 URL 清除 token），否则直接 `GET /api/_auth/check`。
@@ -40,7 +40,7 @@
 - `tool_use` 块嵌入消息内，复用 `ToolCallCard` 折叠展示。
 - assistant 消息若含文本块，头部右侧有 `raw / preview` 切换按钮：默认 `preview`（`Markdown` 组件用 marked 渲染，样式见 `src/styles.css` 的 `.cc-md` 作用域），切到 `raw` 显示原始文本（`whitespace-pre-wrap`）。状态按消息独立保存（无全局开关、无持久化）。
 - 顶部工具条：跳转顶部 / 底部 / 下一个工具调用 / 下一个 sub-agent 分支 / **Concise 开关**。
-- **Concise 模式**（toolbar 右侧 `○/● Concise` 按钮，状态持久化到 `localStorage["cc-viz:timeline-concise"]`）：模拟 Claude Code CLI 的可见信息——`thinking` 块隐藏、`turn_duration` 系统行隐藏、assistant 下方的 token/cost usage 隐藏、tool 调用改为不可展开的紧凑单行（`<ToolCallCard compact />`）。同一条 assistant 消息内**连续 ≥2 个同名 tool_use** 进一步合并为可展开组（`<ToolGroupCard />`，header 形如 `Read × 5`，预览首两个参数 + `+N more`，展开后逐条紧凑显示）。完整数据仍可在 ToolCalls / TokenChart 等 tab 查看。
+- **Concise 模式**（toolbar 右侧 `○/● Concise` 按钮，状态持久化到 `localStorage["cc-viz:timeline-concise"]`）：模拟 CLI 可见信息——`thinking` 块隐藏、`turn_duration` 系统行隐藏、assistant 下方的 token/cost usage 隐藏、tool 调用改为不可展开的紧凑单行（`<ToolCallCard compact />`）。同一条 assistant 消息内**连续 ≥2 个同名 tool_use** 进一步合并为可展开组（`<ToolGroupCard />`，header 形如 `Read × 5`，预览首两个参数 + `+N more`，展开后逐条紧凑显示）。完整数据仍可在 ToolCalls / TokenChart 等 tab 查看。
 
 ## ToolCalls（`src/views/ToolCalls.tsx`）
 

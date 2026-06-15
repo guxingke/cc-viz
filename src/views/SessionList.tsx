@@ -55,6 +55,7 @@ export function SessionList() {
               <ProjectRow
                 key={p.id}
                 label={shortenCwd(p.cwd)}
+                source={p.source}
                 hint={`${p.sessionCount} · ${formatTokens(p.totalTokens)} · ${formatCost(
                   p.totalCostUsd,
                 )} · ${formatRelative(p.lastActiveAt)}`}
@@ -116,7 +117,7 @@ export function SessionList() {
         ) : filteredSessions.length === 0 ? (
           <EmptyState
             title="No sessions"
-            hint="Run Claude Code in any directory to create a session."
+            hint="Run Claude Code or Codex in any directory to create a session."
           />
         ) : (
           <table className="w-full text-sm">
@@ -142,8 +143,9 @@ export function SessionList() {
                       <div className="font-medium truncate text-gray-900 dark:text-gray-100">
                         {truncate(s.title || 'Untitled', 90)}
                       </div>
-                      <div className="text-xs text-gray-500 dark:text-gray-400 truncate font-mono">
-                        {shortenCwd(s.cwd)}
+                      <div className="text-xs text-gray-500 dark:text-gray-400 truncate font-mono flex items-center gap-1.5">
+                        <SourceBadge source={s.source} />
+                        <span className="truncate">{shortenCwd(s.cwd)}</span>
                       </div>
                     </Link>
                   </td>
@@ -182,11 +184,13 @@ function sumTokens(t: { [k: string]: unknown }): number {
 
 function ProjectRow({
   label,
+  source,
   hint,
   active,
   onClick,
 }: {
   label: string;
+  source?: 'claude' | 'codex';
   hint: string;
   active: boolean;
   onClick: () => void;
@@ -201,9 +205,24 @@ function ProjectRow({
           : 'border-transparent hover:bg-gray-50 dark:hover:bg-gray-900/50')
       }
     >
-      <div className="text-sm font-medium truncate text-gray-900 dark:text-gray-100">{label}</div>
+      <div className="text-sm font-medium truncate text-gray-900 dark:text-gray-100 flex items-center gap-1.5">
+        {source && <SourceBadge source={source} />}
+        <span className="truncate">{label}</span>
+      </div>
       <div className="text-xs text-gray-500 dark:text-gray-400 truncate">{hint}</div>
     </button>
+  );
+}
+
+function SourceBadge({ source }: { source: 'claude' | 'codex' }) {
+  const cls =
+    source === 'codex'
+      ? 'bg-emerald-100 text-emerald-700 dark:bg-emerald-950 dark:text-emerald-300'
+      : 'bg-orange-100 text-orange-700 dark:bg-orange-950 dark:text-orange-300';
+  return (
+    <span className={`inline-block rounded px-1 py-0.5 text-[10px] font-mono uppercase ${cls}`}>
+      {source}
+    </span>
   );
 }
 

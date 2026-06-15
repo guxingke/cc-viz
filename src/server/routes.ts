@@ -76,7 +76,8 @@ async function getProjectSummaries(): Promise<ProjectSummary[]> {
       );
       return {
         id: p.id,
-        cwd: cwd || decodeProjectId(p.id),
+        source: p.source,
+        cwd: cwd || p.cwd || decodeProjectId(p.id, p.source),
         sessionCount: p.sessions.length,
         totalTokens,
         totalCostUsd,
@@ -88,7 +89,8 @@ async function getProjectSummaries(): Promise<ProjectSummary[]> {
   return all;
 }
 
-function decodeProjectId(id: string): string {
+function decodeProjectId(id: string, source: 'claude' | 'codex'): string {
+  if (source === 'codex') return id.replace(/^codex:/, '') || '(unknown cwd)';
   // Best-effort: replace leading "-" with "/" then convert dashes between segments.
   // Not perfect, but only used when no session reveals the cwd.
   return id.replace(/^-/, '/').replace(/-/g, '/');
@@ -185,13 +187,14 @@ async function handleShareList(url: URL): Promise<Response> {
 }
 
 async function handleShareRevoke(token: string): Promise<Response> {
-  if (!token) return json({ error: 'token_required' }, 400);
-  const ok = revokeShare(token);
+  const decoded = decodePathParam(token);
+  if (!decoded) return json({ error: 'token_required' }, 400);
+  const ok = revokeShare(decoded);
   return json({ ok }, ok ? 200 : 404);
 }
 
 async function handleSharedSession(token: string): Promise<Response> {
-  const share = resolveActiveShare(token);
+  const share = resolveActiveShare(decodePathParam(token));
   if (!share) return unauthorizedJson();
   const file = await findSessionById(share.sessionId);
   if (!file) return json({ error: 'session_not_found', id: share.sessionId }, 404);
@@ -253,12 +256,13 @@ export async function handleApi(req: Request): Promise<Response> {
     if (p === '/api/sessions') return json(await getAllSessionSummaries());
 
     let m = p.match(/^\/api\/sessions\/([^/]+)\/raw$/);
-    if (m) return await getSessionRaw(m[1]);
+    if (m) return await getSessionRaw(decodePathParam(m[1]));
 
     m = p.match(/^\/api\/sessions\/([^/]+)$/);
     if (m) {
-      const detail = await getSessionDetail(m[1]);
-      if (!detail) return json({ error: 'session_not_found', id: m[1] }, 404);
+      const id = decodePathParam(m[1]);
+      const detail = await getSessionDetail(id);
+      if (!detail) return json({ error: 'session_not_found', id }, 404);
       return json(detail);
     }
 
@@ -272,5 +276,13 @@ export async function handleApi(req: Request): Promise<Response> {
   } catch (err) {
     console.error('[api]', p, err);
     return json({ error: (err as Error).message ?? 'internal_error' }, 500);
+  }
+}
+
+function decodePathParam(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
   }
 }
